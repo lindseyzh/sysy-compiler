@@ -7,6 +7,7 @@
 %{
 
 #include <iostream>
+#include<cstring>
 #include <memory>
 #include <string>
 #include "AST.h"
@@ -44,7 +45,7 @@ using namespace std;
 // 非终结符的类型定义
 %type <ast_val> FuncDef Block Stmt
 %type <int_val> Number
-%type <str_val> Type
+%type <str_val> FuncType
 
 %%
 
@@ -71,18 +72,20 @@ CompUnit
 // 否则会发生内存泄漏, 而 unique_ptr 这种智能指针可以自动帮我们 delete
 // 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
 // 这种写法会省下很多内存管理的负担
+// Note: $n = the nth parameter
 FuncDef
-  : Type IDENT '(' ')' Block {
+  : FuncType IDENT '(' ')' Block {
     auto func_def = new FuncDefAST();
-    func_def->func_type = *unique_ptr<string>($1);
-    func_def->ident = *unique_ptr<string>($2);
-    func_def->block = unique_ptr<BaseAST>($5);
+    func_def->func_type = *unique_ptr<string>($1); // FuncType
+    // func_def->func_type = *unique_ptr<BaseAST>($1); // FuncType
+    func_def->ident = *unique_ptr<string>($2); // IDENT
+    func_def->block = unique_ptr<BaseAST>($5); // Block
     $$ = func_def;
   }
   ;
 
 // 同上, 不再解释
-Type
+FuncType
   : INT {
     $$ = new string("int");
   }
@@ -91,7 +94,7 @@ Type
 Block
   : '{' Stmt '}' {
     auto block = new BlockAST();
-    block->stmt = unique_ptr<BaseAST>($2);
+    block->stmt = unique_ptr<BaseAST>($2); // Stmt
     $$ = block;
   }
   ;
@@ -116,5 +119,14 @@ Number
 // 定义错误处理函数, 其中第二个参数是错误信息
 // parser 如果发生错误 (例如输入的程序出现了语法错误), 就会调用这个函数
 void yyerror(unique_ptr<BaseAST> &ast, const char *s) {
-  cerr << "error: " << s << endl;
+  extern int yylineno;    // defined and maintained in lex
+    extern char *yytext;    // defined and maintained in lex
+    int len=strlen(yytext);
+    int i;
+    char buf[512]={0};
+    for (i=0;i<len;++i)
+    {
+        sprintf(buf,"%s%d", buf, yytext[i]);
+    }
+    fprintf(stderr, "ERROR: %s at symbol '%s' on line %d\n", s, buf, yylineno);
 }
