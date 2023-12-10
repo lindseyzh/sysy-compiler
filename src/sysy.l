@@ -6,29 +6,36 @@
 
 #include <cstdlib>
 #include <string>
-
-
-// 因为 Flex 会用到 Bison 中关于 token 的定义
-// 所以需要 include Bison 生成的头文件
 #include "sysy.tab.hpp"
-#include "AST.h"
+#include "AST.hpp"
 
 using namespace std;
 
 %}
 
-/* 空白符和注释 */
+/* White space & comments */
 WhiteSpace    [ \t\n\r]*
 LineComment   "//".*
 BlockComment  "/*"([^*]*|(\*+[^/]))*"*/"
 
-/* 标识符 */
+/* Identifier */
 Identifier    [a-zA-Z_][a-zA-Z0-9_]*
 
-/* 整数字面量 */
+/* Integer */
 Decimal       [1-9][0-9]*
 Octal         0[0-7]*
 Hexadecimal   0[xX][0-9a-fA-F]+
+
+/* Operator */
+UnaryOperator \!  
+/* We handle unary operators '+' and '-' as binary operator. See sysy.y for more detail. */
+MulOperator   \*|\/|\%
+AddOperator   \+|\-
+RelOperator   <|>|<=|>=
+EqOperator    ==|\!=
+LAndOperator  &&
+LOrOperator   \|\|
+
 
 %%
 
@@ -44,6 +51,14 @@ Hexadecimal   0[xX][0-9a-fA-F]+
 {Decimal}       { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
 {Octal}         { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
 {Hexadecimal}   { yylval.int_val = strtol(yytext, nullptr, 0); return INT_CONST; }
+
+{UnaryOperator}      { yylval.str_val = new string(yytext); return UNARYOP; }
+{MulOperator}      { yylval.str_val = new string(yytext); return MULOP; }
+{AddOperator}      { yylval.str_val = new string(yytext); return ADDOP; }
+{RelOperator}      { yylval.str_val = new string(yytext); return RELOP; }
+{EqOperator}      { yylval.str_val = new string(yytext); return EQOP; }
+{LAndOperator}      { yylval.str_val = new string(yytext); return LANDOP; }
+{LOrOperator}      { yylval.str_val = new string(yytext); return LOROP; }
 
 .               { return yytext[0]; }
 

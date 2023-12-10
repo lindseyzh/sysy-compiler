@@ -5,8 +5,8 @@
 #include <string>
 #include <sstream>
 #include "koopa.h"
-#include "AST.h"
-#include "riskv.h"
+#include "AST.hpp"
+#include "riskv.hpp"
 
 using namespace std;
 
@@ -38,10 +38,11 @@ int main(int argc, const char *argv[]) {
     assert(!ret);
 
     // For test: dump AST
-    // ast->Dump();
-    
+    if(mode == "-test"){
+        ast->Dump();
+    }
     // Output Koopa IR
-    if(mode == "-koopa"){
+    else if(mode == "-koopa"){
         ast->DumpIR(); 
     }
     // Output RISC-V

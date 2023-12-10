@@ -1,7 +1,7 @@
 %code requires {
   #include <memory>
   #include <string>
-  #include "AST.h"
+  #include "AST.hpp"
 }
 
 %{
@@ -10,7 +10,7 @@
 #include<cstring>
 #include <memory>
 #include <string>
-#include "AST.h"
+#include "AST.hpp"
 
 // 声明 lexer 函数和错误处理函数
 int yylex();
@@ -39,11 +39,12 @@ using namespace std;
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
 %token INT RETURN
-%token <str_val> IDENT
+%token <str_val> IDENT UNARYOP MULOP ADDOP RELOP EQOP LANDOP LOROP
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef Block Stmt
+%type <ast_val> FuncDef Block Stmt 
+%type <ast_val> Exp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp
 %type <int_val> Number
 %type <str_val> FuncType
 
@@ -62,16 +63,6 @@ CompUnit
   }
   ;
 
-// FuncDef ::= FuncType IDENT '(' ')' Block;
-// 我们这里可以直接写 '(' 和 ')', 因为之前在 lexer 里已经处理了单个字符的情况
-// 解析完成后, 把这些符号的结果收集起来, 然后拼成一个新的字符串, 作为结果返回
-// $$ 表示非终结符的返回值, 我们可以通过给这个符号赋值的方法来返回结果
-// 你可能会问, FuncType, IDENT 之类的结果已经是字符串指针了
-// 为什么还要用 unique_ptr 接住它们, 然后再解引用, 把它们拼成另一个字符串指针呢
-// 因为所有的字符串指针都是我们 new 出来的, new 出来的内存一定要 delete
-// 否则会发生内存泄漏, 而 unique_ptr 这种智能指针可以自动帮我们 delete
-// 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
-// 这种写法会省下很多内存管理的负担
 // Note: $n = the nth parameter
 FuncDef
   : FuncType IDENT '(' ')' Block {
@@ -84,7 +75,6 @@ FuncDef
   }
   ;
 
-// 同上, 不再解释
 FuncType
   : INT {
     $$ = new string("int");
@@ -100,11 +90,33 @@ Block
   ;
 
 Stmt
-  : RETURN Number ';' {
+  : RETURN Exp ';' {
     auto stmt = new StmtAST();
-    stmt->number = unique_ptr<int>(new int);
-    *stmt->number = ($2);
+    stmt->subExp = unique_ptr<BaseAST>($2);
     $$ = stmt;
+  }
+  ;
+
+Exp
+  : LOrExp {
+      auto exp = new ExpAST();
+      exp->subExp = unique_ptr<BaseAST>($1);
+      $$ = exp;
+  }
+  ;
+
+PrimaryExp
+  : '(' Exp ')' {
+    auto primary_exp = new PrimaryExpAST();
+    primary_exp->def = PrimaryExpAST::def_bracketexp;
+    primary_exp->subExp = unique_ptr<BaseAST>($2);
+    $$ = primary_exp;
+  }
+  | Number {
+    auto primary_exp = new PrimaryExpAST();
+    primary_exp->def = PrimaryExpAST::def_numberexp;
+    primary_exp->number = ($1);
+    $$ = primary_exp;
   }
   ;
 
@@ -113,6 +125,119 @@ Number
     $$ = ($1);
   }
   ;
+
+UnaryExp
+  : PrimaryExp {
+    auto unary_exp = new UnaryExpAST();
+    unary_exp->def = UnaryExpAST::def_primaryexp;
+    unary_exp->subExp = unique_ptr<BaseAST>($1);
+    $$ = unary_exp;
+  }
+  | ADDOP UnaryExp {
+    auto unary_exp = new UnaryExpAST();
+    unary_exp->def = UnaryExpAST::def_unaryexp;
+    unary_exp->op = *unique_ptr<string>($1);
+    unary_exp->subExp = unique_ptr<BaseAST>($2);
+    $$ = unary_exp;
+  }
+  | UNARYOP UnaryExp {
+    auto unary_exp = new UnaryExpAST();
+    unary_exp->def = UnaryExpAST::def_unaryexp;
+    unary_exp->op = *unique_ptr<string>($1);
+    unary_exp->subExp = unique_ptr<BaseAST>($2);
+    $$ = unary_exp;
+  }
+  ;
+
+MulExp
+  : UnaryExp {
+      auto exp = new MulExpAST();
+      exp->subExp = unique_ptr<BaseAST>($1);
+      $$ = exp;
+  }
+  | MulExp MULOP UnaryExp {
+      auto exp = new MulExpAST();
+      exp->mulExp = unique_ptr<BaseAST>($1);
+      exp->op = *unique_ptr<string>($2);
+      exp->subExp = unique_ptr<BaseAST>($3);
+      $$ = exp;
+  }
+  ;
+
+AddExp
+  : MulExp {
+      auto exp = new AddExpAST();
+      exp->subExp = unique_ptr<BaseAST>($1);
+      $$ = exp;
+  }
+  | AddExp ADDOP MulExp {
+      auto exp = new AddExpAST();
+      exp->addExp = unique_ptr<BaseAST>($1);
+      exp->op = *unique_ptr<string>($2);
+      exp->subExp = unique_ptr<BaseAST>($3);
+      $$ = exp;
+  }
+  ;
+
+RelExp
+  : AddExp {
+      auto exp = new RelExpAST();
+      exp->subExp = unique_ptr<BaseAST>($1);
+      $$ = exp;
+  }
+  | RelExp RELOP AddExp {
+      auto exp = new RelExpAST();
+      exp->relExp = unique_ptr<BaseAST>($1);
+      exp->op = *unique_ptr<string>($2);
+      exp->subExp = unique_ptr<BaseAST>($3);
+      $$ = exp;
+  }
+  ;
+
+EqExp
+    : RelExp {
+        auto exp = new EqExpAST();
+        exp->subExp = unique_ptr<BaseAST>($1);
+        $$ = exp;
+    }
+    | EqExp EQOP RelExp {
+        auto exp = new EqExpAST();
+        exp->eqExp = unique_ptr<BaseAST>($1);
+        exp->op = *unique_ptr<string>($2);
+        exp->subExp = unique_ptr<BaseAST>($3);
+        $$ = exp;
+    }
+    ;
+
+LAndExp
+    : EqExp {
+        auto exp = new LAndExpAST();
+        exp->subExp = unique_ptr<BaseAST>($1);
+        $$ = exp;
+    }
+    | LAndExp LANDOP EqExp {
+        auto exp = new LAndExpAST();
+        exp->lAndExp = unique_ptr<BaseAST>($1);
+        exp->op = *unique_ptr<string>($2);
+        exp->subExp = unique_ptr<BaseAST>($3);
+        $$ = exp;
+    }
+    ;
+
+LOrExp
+    : LAndExp {
+        auto exp = new LOrExpAST();
+        exp->subExp = unique_ptr<BaseAST>($1);
+        $$ = exp;
+    }
+    | LOrExp LOROP LAndExp {
+        auto exp = new LOrExpAST();
+        exp->lOrExp = unique_ptr<BaseAST>($1);
+        exp->op = *unique_ptr<string>($2);
+        exp->subExp = unique_ptr<BaseAST>($3);
+        $$ = exp;
+    }
+    ;
 
 %%
 
