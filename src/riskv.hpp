@@ -151,8 +151,8 @@ int32_t Visit(const koopa_raw_value_t &value) {
             std::cout << "//binary\n";
             print_stack_size();
             retValue = Visit(kind.data.binary);
-            VarOffsetMap[value] = -1;
             VarRegMap[value] = retValue;
+            VarOffsetMap[value] = -1;
             print_stack_size();
             break;
         case KOOPA_RVT_RETURN:
@@ -208,8 +208,14 @@ int32_t Visit(const koopa_raw_integer_t &integer){
 }
 
 int32_t Visit(const koopa_raw_binary_t &binary){
+    int32_t lasstat; // a tmp variant
     int32_t lhs_regnum = Visit(binary.lhs);
+    lasstat = RegStatus[lhs_regnum];
+    RegStatus[lhs_regnum] = 2;
     int32_t rhs_regnum = Visit(binary.rhs);
+    RegStatus[lhs_regnum] = lasstat;
+    lasstat = RegStatus[rhs_regnum];
+    RegStatus[rhs_regnum] = 2;
     int32_t ans_regnum = choose_reg(1, CurValue);
     std::string lhs_reg = RegName[lhs_regnum];
     std::string rhs_reg = RegName[rhs_regnum];
