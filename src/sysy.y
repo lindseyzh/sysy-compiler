@@ -46,7 +46,7 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef Block BlockItem Stmt
+%type <ast_val> FuncDef Block BlockItem Stmt ComplexStmt OpenStmt ClosedStmt
 %type <ast_val> Decl ConstDecl ConstDef ConstInitVal VarDecl VarDef InitVal
 %type <ast_val> Exp ConstExp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp
 %type <mul_val> BlockItems ConstDefs VarDefs // FuncFParams FuncRParams
@@ -222,11 +222,57 @@ BlockItem
     block_item->blockItem = unique_ptr<BaseAST>($1);
     $$ = block_item;
   }
-  | Stmt {
+  | ComplexStmt {
     auto block_item = new BlockItemAST();
     block_item->def = BlockItemAST::def_stmt;
     block_item->blockItem = unique_ptr<BaseAST>($1);
     $$ = block_item;  }
+  ;
+
+ComplexStmt
+    : OpenStmt {
+        auto stmt = ($1);
+        $$ = stmt;
+    }
+    | ClosedStmt {
+        auto stmt = ($1);
+        $$ = stmt;
+    }
+    ;
+
+ClosedStmt
+  : Stmt {
+    auto stmt = new ComplexStmtAST();
+    stmt->def = ComplexStmtAST::def_simple;
+    stmt->subExp = unique_ptr<BaseAST>($1);
+    $$ = stmt;
+  }
+  | IF '(' Exp ')' ClosedStmt ELSE ClosedStmt {
+    auto stmt = new ComplexStmtAST();
+    stmt->def = ComplexStmtAST::def_ifelse;
+    stmt->subExp = unique_ptr<BaseAST>($3);
+    stmt->subStmt = unique_ptr<BaseAST>($5);
+    stmt->elseStmt = unique_ptr<BaseAST>($7);
+    $$ = stmt;
+  }
+  ;
+
+OpenStmt
+  : IF '(' Exp ')' ComplexStmt {
+    auto stmt = new ComplexStmtAST();
+    stmt->def = ComplexStmtAST::def_openif;
+    stmt->subExp = unique_ptr<BaseAST>($3);
+    stmt->subStmt = unique_ptr<BaseAST>($5);
+    $$ = stmt;
+  }
+  | IF '(' Exp ')' ClosedStmt ELSE OpenStmt {
+    auto stmt = new ComplexStmtAST();
+    stmt->def = ComplexStmtAST::def_ifelse;
+    stmt->subExp = unique_ptr<BaseAST>($3);
+    stmt->subStmt = unique_ptr<BaseAST>($5);
+    stmt->elseStmt = unique_ptr<BaseAST>($7);
+    $$ = stmt;
+  }
   ;
 
 Stmt
@@ -236,6 +282,11 @@ Stmt
     stmt->subExp = unique_ptr<BaseAST>($2);
     $$ = stmt;
   }
+  | RETURN ';' {
+    auto stmt = new StmtAST();
+    stmt->def = StmtAST::def_ret;
+    $$ = stmt;
+  }
   | LVal '=' Exp ';' {
     auto stmt = new StmtAST();
     stmt->def = StmtAST::def_lval;
@@ -243,9 +294,23 @@ Stmt
     stmt->subExp = unique_ptr<BaseAST>($3);
     $$ = stmt;
   }
-  ;
-
-// TODO: modify stmt AST; Add corresponding ASTs for new types; check new ASTs and types for typos and errors
+  | Exp ';' {
+    auto stmt = new StmtAST();
+    stmt->def = StmtAST::def_exp;
+    stmt->subExp = unique_ptr<BaseAST>($1);
+    $$ = stmt;
+  }
+  | ';' {
+    auto stmt = new StmtAST();
+    stmt->def = StmtAST::def_exp;
+    $$ = stmt;
+  }
+  | Block {
+    auto stmt = new StmtAST();
+    stmt->def = StmtAST::def_block;
+    stmt->subExp = unique_ptr<BaseAST>($1);
+    $$ = stmt;
+  };
 
 LVal
   : IDENT {

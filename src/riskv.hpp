@@ -1,5 +1,5 @@
 #pragma once
-#include "riskv_helper.hpp"
+#include "riskv_util.hpp"
 
 void Visit(const koopa_raw_program_t &program);
 void Visit(const koopa_raw_slice_t &slice);
@@ -71,6 +71,7 @@ void Visit(const koopa_raw_function_t &func) {
             std::cout << "\tsw      ra, (s11)\n";
         }
     }
+    print_stack_size();
     Visit(func->bbs);
     std::cout << "\n";
 
@@ -118,18 +119,17 @@ int32_t Visit(const koopa_raw_value_t &value) {
     // See line 383 of koopa.h for the full tag list
     switch (kind.tag) {
         case KOOPA_RVT_INTEGER:
-            print_stack_size();
             retValue = Visit(kind.data.integer);
             break;
         case KOOPA_RVT_ALLOC:
             /// Memory allocation.
             std::cout << "//alloc\n";
-            print_stack_size();
             assert(value->ty->tag == KOOPA_RTT_POINTER);
             VarRegMap[value] = -1;
             VarOffsetMap[value] = StackTop;            
             StackTop += calc_type_size(value->ty->data.pointer.base);
             print_stack_size();
+            // print_reg_status();
             break;
         case KOOPA_RVT_GLOBAL_ALLOC:
             /// Memory load.
@@ -141,24 +141,26 @@ int32_t Visit(const koopa_raw_value_t &value) {
             VarRegMap[value] = retValue;
             VarOffsetMap[value] = -1;
             print_stack_size();
+            // print_reg_status();
             break;
         case KOOPA_RVT_STORE:
             /// Pointer calculation.
             std::cout << "//store\n";
             Visit(kind.data.store);
+            // print_reg_status();
             break;
         case KOOPA_RVT_BINARY:
             std::cout << "//binary\n";
-            print_stack_size();
             retValue = Visit(kind.data.binary);
             VarRegMap[value] = retValue;
             VarOffsetMap[value] = -1;
-            print_stack_size();
+            // print_reg_status();
             break;
         case KOOPA_RVT_RETURN:
             std::cout << "//ret\n";
-            print_stack_size();
             Visit(kind.data.ret);
+            print_stack_size();
+            // print_reg_status();
             break;
         default:
             assert(false);
@@ -217,6 +219,7 @@ int32_t Visit(const koopa_raw_binary_t &binary){
     lasstat = RegStatus[rhs_regnum];
     RegStatus[rhs_regnum] = 2;
     int32_t ans_regnum = choose_reg(1, CurValue);
+    RegStatus[rhs_regnum] = lasstat;
     std::string lhs_reg = RegName[lhs_regnum];
     std::string rhs_reg = RegName[rhs_regnum];
     std::string ans_reg = RegName[ans_regnum];
@@ -357,6 +360,7 @@ void Visit(const koopa_raw_store_t &store)
     //         reg_names[dest_var.reg_name] << ")" << std::endl;
     //     return;
     // }
+    // print_reg_status();
     assert(VarRegMap.count(dest));
     if (VarOffsetMap[dest] == -1){
         VarOffsetMap[dest] = StackTop;

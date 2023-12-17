@@ -13,10 +13,17 @@ typedef std::variant<int, std::string> SymTabEntry;
 typedef std::unordered_map<std::string, SymTabEntry> SymTabType;
 typedef std::vector<std::unique_ptr<BaseAST>> MulVecType;
 
-static int varNum = 0;
+static const std::string thenString = "\%then_";
+static const std::string elseString = "\%else_";
+static const std::string endString = "\%end_";
+static int32_t ifElseNum = 0;
+
+static int32_t varNum = 0;
 static std::vector<SymTabType> symTabs;
+static std::unordered_map<std::string, int32_t> symNameCount;
 
 inline static SymTabEntry symTabs_lookup(std::string lval);
+inline std::string getNewSymName();
 
 // Base class for all ASTs
 class BaseAST {
@@ -65,13 +72,23 @@ class FuncDefAST : public BaseAST {
     }
 
     std::string DumpIR() const override {
-        std::cout << "fun @" << ident << "(): ";
-        std::cout << "i32";
+        std::cout << "fun @" << ident << "()";
+        if(func_type == "int")
+            std::cout << ": i32";
+        else assert(func_type == "void");
         std::cout << " {" << "\n";
-        std::cout << "%entry:" << "\n";
-        block->DumpIR();
-        std::cout << "}" << std::endl;
-        return "";
+        std::cout << "%entry_" << ident << ":\n";
+        std::string blockEnd = block->DumpIR();
+        if (blockEnd != "ret"){
+            if (func_type == "int")
+                std::cout << "\tret 0\n";
+            else {
+                assert(func_type == "void");
+                std::cout << "\tret\n";
+            }
+        }
+        std::cout << "}\n\n";
+        return blockEnd;
     }
 };
 
@@ -184,14 +201,18 @@ public:
         std::cout << "} ";    
     }
     std::string DumpIR() const override { 
-        std::string symName = "@" + ident;
+        if(symNameCount.count(ident) == 0){
+            symNameCount[ident] = 0;
+        }
+        int32_t symNameTag = symNameCount[ident]++;
+        std::string symName = "@" + ident + "_" + std::to_string(symNameTag);
         std::cout << "\t" << symName << " = alloc i32\n";
         symTabs.back()[ident] = symName;
         if (initVal){
             std::string lastIR = initVal->DumpIR();
             std::cout << "\tstore " << lastIR << ", " << symName << "\n";
         }
-        return "";
+        return symName;
     }
     int32_t CalValue() const override { 
         symTabs.back()[ident] = std::stoi(initVal->DumpIR());    
@@ -228,8 +249,7 @@ class BlockAST : public BaseAST {
             std::string lastIR = "";
             SymTabType symTab;
             symTabs.push_back(symTab);
-            for (auto&& it : blockItems)
-            {
+            for (auto&& it : blockItems){
                 lastIR = it->DumpIR();
                 if (lastIR == "ret" || lastIR == "break" || lastIR == "cont")
                     break;
@@ -244,19 +264,91 @@ class BlockItemAST : public BaseAST {
         enum {def_decl, def_stmt} def;
         std::unique_ptr<BaseAST> blockItem;
     void Dump() const override {
-        std::cout << "BlockAST { ";
         blockItem->Dump();
-        std::cout << " }" << std::endl;
     }
     std::string DumpIR() const override {
-        blockItem->DumpIR();
+        return blockItem->DumpIR();
+    }
+};
+
+class ComplexStmtAST : public BaseAST
+{
+public:
+    enum {def_simple, def_openif, def_ifelse} def;
+    std::unique_ptr<BaseAST> subExp;
+    std::unique_ptr<BaseAST> subStmt;
+    std::unique_ptr<BaseAST> elseStmt;
+    void Dump() const override{
+        switch(def){
+            case def_simple:
+                std::cout << "StmtAST { ";
+                subExp->Dump();
+                std::cout << " } ";
+                break;
+            case def_openif:
+                std::cout << "IF { ";
+                subExp->Dump();
+                std::cout << " } THEN { ";
+                subStmt->Dump();
+                std::cout << " } ";
+                break;
+            case def_ifelse:
+                std::cout << "IF { ";
+                subExp->Dump();
+                std::cout << " } THEN { ";
+                subStmt->Dump();
+                std::cout << " } ELSE { ";
+                elseStmt->Dump();
+                std::cout << " } ";
+                break;
+            default: 
+                break;
+        }
+    }
+    
+    std::string DumpIR() const override{
+        if(def == def_simple){
+            return subExp->DumpIR();
+        }
+        else {
+            std::string subExpIR = subExp->DumpIR();
+            std::string thenTag = thenString + std::to_string(ifElseNum);
+            std::string elseTag = elseString + std::to_string(ifElseNum);
+            std::string endTag = endString + std::to_string(ifElseNum++);
+            if (def == def_openif){
+                std::cout << "\tbr " << subExpIR << ", " << thenTag << ", " << endTag << "\n";
+                std::cout << thenTag << ":\n";
+                std::string subStmtIR = subStmt->DumpIR();
+                if (subStmtIR != "ret" && subStmtIR != "break" && subStmtIR != "cont")
+                    std::cout << "\tjump " << endTag << "\n";
+                std::cout << endTag << ":\n";
+                // return subStmtIR;
+            }
+            else if (def == def_ifelse){
+                std::cout << "\tbr " << subExpIR << ", " << thenTag << ", " << elseTag << "\n";
+                std::cout << thenTag << ":\n";
+                std::string subStmtIR = subStmt->DumpIR();
+                if (subStmtIR != "ret" && subStmtIR != "break" && subStmtIR != "cont")
+                    std::cout << "\tjump " << endTag << "\n";
+                std::cout << elseTag << ":\n";
+                std::string elseStmtIR = elseStmt->DumpIR();
+                if (elseStmtIR != "ret" && elseStmtIR != "break" && elseStmtIR != "cont")
+                    std::cout << "\tjump " << endTag << "\n";
+                if ((subStmtIR == "ret" || subStmtIR == "break" || subStmtIR == "cont") 
+                    && (elseStmtIR == "ret" || elseStmtIR == "break" || elseStmtIR == "cont"))
+                    return "ret";
+                else std::cout << endTag << ":\n";
+                // return subStmtIR;
+            }
+            else assert(false);
+        }
         return "";
     }
 };
 
 class StmtAST : public BaseAST {
     public: 
-        enum {def_lval, def_ret} def;
+        enum {def_lval, def_ret, def_exp, def_block} def;
         std::string lVal;
         std::unique_ptr<BaseAST> subExp;
         void Dump() const override {
@@ -269,6 +361,18 @@ class StmtAST : public BaseAST {
                 std::cout << "RETURN { ";
                 subExp->Dump();
                 std::cout << " }";
+            }
+            else if (def == def_exp){
+                if (subExp){
+                    std::cout << "EXP { ";
+                    subExp->Dump();
+                    std::cout << " } ";
+                }
+            }
+            else if (def == def_block){
+                std::cout << "BLOCK { ";
+                subExp->Dump();
+                std::cout << " } ";
             }
         }
 
@@ -288,8 +392,16 @@ class StmtAST : public BaseAST {
                     std::cout << "\tret\n";
                     // TODO: add functype. if functype == int, return 0;
                 }        
+                return "ret";
             }
-
+            else if (def == def_exp){
+                if (subExp){
+                    subExp->DumpIR();
+                }
+            }
+            else if (def == def_block){
+                return subExp->DumpIR();
+            }
             return "";
         }
 };
@@ -750,13 +862,33 @@ public:
         
         // LAndExp := LAndExp LANDOP EqExp
         assert(op == "&&");
-        std::string landexp = lAndExp->DumpIR();
-        std::string subexp = subExp->DumpIR();
-        std::cout << "\t%" << varNum++ << " = ne " << landexp << ", 0\n";
-        std::cout << "\t%" << varNum++ << " = ne " << subexp << ", 0\n";
-        std::cout << "\t%" << varNum << " = and %" << (varNum - 2) << ", %" 
-                    << (varNum - 1) << "\n";
-        return "%" + std::to_string(varNum++);
+        std::string lhs = lAndExp->DumpIR();
+        std::string thenTag = thenString + std::to_string(ifElseNum);
+        std::string elseTag = elseString + std::to_string(ifElseNum);
+        std::string endTag = endString + std::to_string(ifElseNum++);
+        std::string tmpSymName1 = getNewSymName();
+        std::cout << '\t' << tmpSymName1 << " = alloc i32\n";
+        std::cout << "\tbr " << lhs << ", " << thenTag << ", " << elseTag << "\n";
+        std::cout << thenTag << ":\n";
+        std::string tmpSymName2 = getNewSymName();
+        std::string rhs = subExp->DumpIR();
+        std::cout << '\t' << tmpSymName2 << " = ne " << rhs << ", 0\n";
+        std::cout << "\tstore " << tmpSymName2 << ", " << tmpSymName1 << "\n";
+        std::cout << "\tjump " << endTag << "\n";
+        std::cout << elseTag << ":\n";
+        std::cout << "\tstore 0, " << tmpSymName1 << "\n";
+        std::cout << "\tjump " << endTag << "\n";
+        std::cout << endTag << ":\n";
+        std::string symName = getNewSymName();
+        std::cout << '\t' << symName << " = load " << tmpSymName1 << "\n";
+        return symName;
+        // std::string landexp = lAndExp->DumpIR();
+        // std::string subexp = subExp->DumpIR();
+        // std::cout << "\t%" << varNum++ << " = ne " << landexp << ", 0\n";
+        // std::cout << "\t%" << varNum++ << " = ne " << subexp << ", 0\n";
+        // std::cout << "\t%" << varNum << " = and %" << (varNum - 2) << ", %" 
+        //             << (varNum - 1) << "\n";
+        // return "%" + std::to_string(varNum++);
     }
 
     virtual int32_t CalValue() const override{
@@ -799,13 +931,34 @@ public:
         
         // LOrExp := LOrExp LOROP LAndExp
         assert(op == "||");
-        std::string lorexp = lOrExp->DumpIR();
-        std::string subexp = subExp->DumpIR();
-        std::cout << "\t%" << varNum++ << " = eq " << lorexp << ", 0\n";
-        std::cout << "\t%" << varNum++ << " = eq " << subexp << ", 0\n";
-        std::cout << "\t%" << varNum << " = or %" << (varNum - 2) << ", %" 
-                    << (varNum - 1) << "\n";
-        return "%" + std::to_string(varNum++);
+        std::string lhs = lOrExp->DumpIR();
+        std::string thenTag = thenString + std::to_string(ifElseNum);
+        std::string elseTag = elseString + std::to_string(ifElseNum);
+        std::string endTag = endString + std::to_string(ifElseNum++);
+        std::string tmpSymName1 = getNewSymName();
+        std::cout << '\t' << tmpSymName1 << " = alloc i32\n";
+        std::cout << "\tbr " << lhs << ", " << thenTag << ", " << elseTag << "\n";
+        std::cout << thenTag << ":\n";
+        std::cout << "\tstore 1, " << tmpSymName1 << "\n";
+        std::cout << "\tjump " << endTag << "\n";
+        std::cout << elseTag << ":\n";
+        std::string tmpSymName2 = getNewSymName();
+        std::string rhs = subExp->DumpIR();
+        std::cout << '\t' << tmpSymName2 << " = ne " << rhs << ", 0\n";
+        std::cout << "\tstore " << tmpSymName2 << ", " << tmpSymName1 << "\n";
+        std::cout << "\tjump " << endTag << "\n";
+        std::cout << endTag << ":\n";
+        std::string symName = getNewSymName();
+        std::cout << '\t' << symName << " = load " << tmpSymName1 << "\n";
+        return symName;
+
+        // std::string lorexp = lOrExp->DumpIR();
+        // std::string subexp = subExp->DumpIR();
+        // std::cout << "\t%" << varNum++ << " = eq " << lorexp << ", 0\n";
+        // std::cout << "\t%" << varNum++ << " = eq " << subexp << ", 0\n";
+        // std::cout << "\t%" << varNum << " = or %" << (varNum - 2) << ", %" 
+        //             << (varNum - 1) << "\n";
+        // return "%" + std::to_string(varNum++);
     }
 
     virtual int32_t CalValue() const override{
@@ -825,6 +978,9 @@ inline static SymTabEntry symTabs_lookup(std::string lval){
         if (it->count(lval))
             return (*it)[lval];    
     }
-    assert(false);
     return 0;
 } 
+
+inline std::string getNewSymName(){
+    return "%" + std::to_string(varNum++);
+}

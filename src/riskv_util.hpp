@@ -40,12 +40,7 @@ inline void mv_to_reg(std::string reg1, std::string reg2){
     std::cout << "\tmv      " << reg2 << ", " << reg1 << "\n";
 }
 
-// int32_t now = 0;
-
 inline int32_t choose_reg(int32_t stat, koopa_raw_value_t value){
-    // int32_t noww = now;
-    // now = (now + 1) % (REGNUM - 1);
-    // return noww;
     // Search status 0
     for(int i = 0; i < REGNUM - 1; i++)
         if(RegStatus[i] == 0){
@@ -53,12 +48,17 @@ inline int32_t choose_reg(int32_t stat, koopa_raw_value_t value){
             RegValue[i] = value;
             return i;
         }
+
     // Search status 1
     for(int i = 0; i < REGNUM - 1; i++){
         if(RegStatus[i] == 1){
             koopa_raw_value_t preVal = RegValue[i];
             VarRegMap[preVal] = -1;
+            if(!VarOffsetMap.count(preVal)){
+                VarOffsetMap[preVal] = -1;
+            }
             int32_t varOffset = VarOffsetMap[preVal];
+            // std::cout << "//varOffset=" << varOffset << std::endl;
             if (varOffset == -1){
                 varOffset = StackTop;
                 VarOffsetMap[preVal] = varOffset;
@@ -78,24 +78,24 @@ inline int32_t choose_reg(int32_t stat, koopa_raw_value_t value){
         }
     }
     // Fail.
+    assert(false);
     return -1;
 }
 
 inline int32_t calc_type_size(const koopa_raw_type_t &ty)
 {
-    return 4;
-    // switch(ty->tag){
-    //     case KOOPA_RTT_UNIT:
-    //         return 0;
-    //     case KOOPA_RTT_ARRAY:
-    //         return calc_type_size(ty->data.array.base) * ty->data.array.len;
-    //     case KOOPA_RTT_INT32:
-    //     case KOOPA_RTT_POINTER:
-    //     default:
-    //         return 4;
-    // }
-    // assert(false);
-    // return 0;
+    switch(ty->tag){
+        case KOOPA_RTT_UNIT:
+            return 0;
+        case KOOPA_RTT_ARRAY:
+            return calc_type_size(ty->data.array.base) * ty->data.array.len;
+        case KOOPA_RTT_INT32:
+        case KOOPA_RTT_POINTER:
+        default:
+            return 4;
+    }
+    assert(false);
+    return 0;
 }
 
 inline int32_t calc_inst_size(const koopa_raw_value_t &value)
@@ -120,15 +120,13 @@ inline int32_t calc_bb_size(const koopa_raw_basic_block_t &bb)
 inline void cal_frame_size(const koopa_raw_function_t &func){
     // TODO: add a stack side calculator
     // Currently, we use a fixed 256-byte frame for each function calling
-
-    int32_t size = 0;
+    FrameSize = 0;
+    StackTop = 0;
     for (int32_t i = 0; i < func->bbs.len; i++){
-        size += calc_bb_size((koopa_raw_basic_block_t)func->bbs.buffer[i]);
+        FrameSize += calc_bb_size((koopa_raw_basic_block_t)func->bbs.buffer[i]);
     }
     
-    size = ceil(size / 16.0) * 16;
-    StackTop = size;
-    FrameSize = size;
+    FrameSize = ceil(FrameSize / 16.0) * 16;
     FrameSize += saveRA ? 4 : 0;
     return;
 }
@@ -161,4 +159,11 @@ inline void reset_regs(bool store_to_stack)
 
 inline void print_stack_size(){
     std::cout << "// StackTop=" << StackTop << ", FrameSize=" << FrameSize << std::endl;
+}
+
+inline void print_reg_status(){
+    std::cout << "// ";
+    for(int i = 0; i < REGNUM; i++)
+        std::cout << RegStatus[i] << ",";
+    std::cout << std::endl;
 }
