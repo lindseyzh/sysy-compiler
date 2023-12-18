@@ -27,6 +27,21 @@ int32_t StackTop = 0;
 koopa_raw_value_t CurValue, PreValue;
 bool saveRA = 0;
 
+void Visit(const koopa_raw_program_t &program);
+void Visit(const koopa_raw_slice_t &slice);
+void Visit(const koopa_raw_function_t &func);
+void Visit(const koopa_raw_basic_block_t &bb);
+// Reg Visit(const koopa_raw_value_t &value);
+int32_t Visit(const koopa_raw_value_t &value);
+void Visit(const koopa_raw_return_t &ret);
+// Reg Visit(const koopa_raw_integer_t &integer);
+int32_t Visit(const koopa_raw_integer_t &integer);
+int32_t Visit(const koopa_raw_binary_t &binary);
+int32_t Visit(const koopa_raw_load_t &load);
+void Visit(const koopa_raw_store_t &store);
+void Visit(const koopa_raw_branch_t &branch);
+void Visit(const koopa_raw_jump_t &jump);
+
 inline void mv_to_reg(koopa_raw_value_t val, std::string reg){
     if (val->kind.tag == KOOPA_RVT_INTEGER)
         std::cout << "\tli      " << reg << ", " << val->kind.data.integer.value << "\n";

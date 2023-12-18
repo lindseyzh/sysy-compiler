@@ -1,29 +1,23 @@
 #pragma once
-#include<memory>
-#include<string>
-#include<iostream>
-#include<cassert>
-#include<vector>
-#include<map>
-#include<unordered_map>
-#include<variant>
+#include"AST_util.hpp"
 
-class BaseAST;
-typedef std::variant<int, std::string> SymTabEntry;
-typedef std::unordered_map<std::string, SymTabEntry> SymTabType;
-typedef std::vector<std::unique_ptr<BaseAST>> MulVecType;
+// Variants for in AST generation.
+// Note: Linking error occurs if I put them in AST_util.hpp, even with #pragma once.
 
 static const std::string thenString = "\%then_";
 static const std::string elseString = "\%else_";
 static const std::string endString = "\%end_";
-static int32_t ifElseNum = 0;
+static const std::string whileEntryString = "\%while_entry_";
+static const std::string whileBodyString = "\%while_body_";
+static const std::string whileEndString = "\%while_end_";
 
 static int32_t varNum = 0;
+static int32_t ifElseNum = 0;
+static int32_t whileNum = 0;
+
 static std::vector<SymTabType> symTabs;
 static std::unordered_map<std::string, int32_t> symNameCount;
-
-inline static SymTabEntry symTabs_lookup(std::string lval);
-inline std::string getNewSymName();
+static std::vector<int32_t> whileTab; // Recording current while layers
 
 // Base class for all ASTs
 class BaseAST {
@@ -274,7 +268,7 @@ class BlockItemAST : public BaseAST {
 class ComplexStmtAST : public BaseAST
 {
 public:
-    enum {def_simple, def_openif, def_ifelse} def;
+    enum {def_simple, def_openif, def_ifelse, def_while} def;
     std::unique_ptr<BaseAST> subExp;
     std::unique_ptr<BaseAST> subStmt;
     std::unique_ptr<BaseAST> elseStmt;
@@ -310,12 +304,28 @@ public:
         if(def == def_simple){
             return subExp->DumpIR();
         }
+        else if (def == def_while){
+                std::string whileEntryTag = whileEntryString + std::to_string(whileNum);
+                std::string whileBodyTag = whileBodyString + std::to_string(whileNum);
+                std::string whileEndTag = whileEndString + std::to_string(whileNum);
+                whileTab.push_back(whileNum++);
+                std::cout << "\tjump " << whileEntryTag << "\n";
+                std::cout << whileEntryTag << ":\n";
+                std::string subExpIR = subExp->DumpIR();
+                std::cout << "\tbr " << subExpIR << ", " << whileBodyTag << ", " << whileEndTag << "\n";
+                std::cout << whileBodyTag << ":" << "\n";
+                std::string subStmtIR = subStmt->DumpIR();
+                if (subStmtIR != "ret" && subStmtIR != "break" && subStmtIR != "cont")
+                    std::cout << "\tjump " << whileEntryTag << "\n";
+                std::cout << whileEndTag << ":\n";
+                whileTab.pop_back();        
+            }
         else {
             std::string subExpIR = subExp->DumpIR();
             std::string thenTag = thenString + std::to_string(ifElseNum);
             std::string elseTag = elseString + std::to_string(ifElseNum);
             std::string endTag = endString + std::to_string(ifElseNum++);
-            if (def == def_openif){
+            if(def == def_openif){
                 std::cout << "\tbr " << subExpIR << ", " << thenTag << ", " << endTag << "\n";
                 std::cout << thenTag << ":\n";
                 std::string subStmtIR = subStmt->DumpIR();
@@ -324,7 +334,7 @@ public:
                 std::cout << endTag << ":\n";
                 // return subStmtIR;
             }
-            else if (def == def_ifelse){
+            else if(def == def_ifelse){
                 std::cout << "\tbr " << subExpIR << ", " << thenTag << ", " << elseTag << "\n";
                 std::cout << thenTag << ":\n";
                 std::string subStmtIR = subStmt->DumpIR();
@@ -340,7 +350,7 @@ public:
                 else std::cout << endTag << ":\n";
                 // return subStmtIR;
             }
-            else assert(false);
+            // else assert(false);
         }
         return "";
     }
@@ -348,7 +358,7 @@ public:
 
 class StmtAST : public BaseAST {
     public: 
-        enum {def_lval, def_ret, def_exp, def_block} def;
+        enum {def_lval, def_ret, def_exp, def_block, def_break, def_continue} def;
         std::string lVal;
         std::unique_ptr<BaseAST> subExp;
         void Dump() const override {
@@ -402,6 +412,17 @@ class StmtAST : public BaseAST {
             else if (def == def_block){
                 return subExp->DumpIR();
             }
+            else if (def == def_break){
+                // assert(!whileTab.empty());
+                std::cout << "\tjump " << whileEndString << whileTab.back() << "\n";
+                return "break";
+            }
+            else if (def == def_continue){
+                // assert(!whileTab.empty());
+                std::cout << "\tjump " << whileEntryString << whileTab.back() << "\n";
+                return "cont";
+            }
+            // else assert(false);
             return "";
         }
 };
@@ -882,13 +903,6 @@ public:
         std::string symName = getNewSymName();
         std::cout << '\t' << symName << " = load " << tmpSymName1 << "\n";
         return symName;
-        // std::string landexp = lAndExp->DumpIR();
-        // std::string subexp = subExp->DumpIR();
-        // std::cout << "\t%" << varNum++ << " = ne " << landexp << ", 0\n";
-        // std::cout << "\t%" << varNum++ << " = ne " << subexp << ", 0\n";
-        // std::cout << "\t%" << varNum << " = and %" << (varNum - 2) << ", %" 
-        //             << (varNum - 1) << "\n";
-        // return "%" + std::to_string(varNum++);
     }
 
     virtual int32_t CalValue() const override{
@@ -951,14 +965,6 @@ public:
         std::string symName = getNewSymName();
         std::cout << '\t' << symName << " = load " << tmpSymName1 << "\n";
         return symName;
-
-        // std::string lorexp = lOrExp->DumpIR();
-        // std::string subexp = subExp->DumpIR();
-        // std::cout << "\t%" << varNum++ << " = eq " << lorexp << ", 0\n";
-        // std::cout << "\t%" << varNum++ << " = eq " << subexp << ", 0\n";
-        // std::cout << "\t%" << varNum << " = or %" << (varNum - 2) << ", %" 
-        //             << (varNum - 1) << "\n";
-        // return "%" + std::to_string(varNum++);
     }
 
     virtual int32_t CalValue() const override{
@@ -973,7 +979,7 @@ public:
     }
 };
 
-inline static SymTabEntry symTabs_lookup(std::string lval){
+inline SymTabEntry symTabs_lookup(std::string lval){
     for (auto it = symTabs.rbegin(); it != symTabs.rend(); it++){
         if (it->count(lval))
             return (*it)[lval];    

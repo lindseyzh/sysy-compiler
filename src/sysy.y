@@ -255,6 +255,13 @@ ClosedStmt
     stmt->elseStmt = unique_ptr<BaseAST>($7);
     $$ = stmt;
   }
+  | WHILE '(' Exp ')' ClosedStmt {
+    auto stmt = new ComplexStmtAST();
+    stmt->def = ComplexStmtAST::def_while;
+    stmt->subExp = unique_ptr<BaseAST>($3);
+    stmt->subStmt = unique_ptr<BaseAST>($5);
+    $$ = stmt;
+  }
   ;
 
 OpenStmt
@@ -272,7 +279,14 @@ OpenStmt
     stmt->subStmt = unique_ptr<BaseAST>($5);
     stmt->elseStmt = unique_ptr<BaseAST>($7);
     $$ = stmt;
-  }
+  }    
+  | WHILE '(' Exp ')' OpenStmt {
+    auto stmt = new ComplexStmtAST();
+    stmt->def = ComplexStmtAST::def_while;
+    stmt->subExp = unique_ptr<BaseAST>($3);
+    stmt->subStmt = unique_ptr<BaseAST>($5);
+    $$ = stmt;
+  }  
   ;
 
 Stmt
@@ -310,7 +324,18 @@ Stmt
     stmt->def = StmtAST::def_block;
     stmt->subExp = unique_ptr<BaseAST>($1);
     $$ = stmt;
-  };
+  }
+  | BREAK ';' {
+    auto stmt = new StmtAST();
+    stmt->def = StmtAST::def_break;
+    $$ = stmt;
+  }
+  | CONTINUE ';' {
+    auto stmt = new StmtAST();
+    stmt->def = StmtAST::def_continue;
+    $$ = stmt;
+  }  
+  ;
 
 LVal
   : IDENT {

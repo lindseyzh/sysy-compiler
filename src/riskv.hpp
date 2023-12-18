@@ -1,19 +1,6 @@
 #pragma once
 #include "riskv_util.hpp"
 
-void Visit(const koopa_raw_program_t &program);
-void Visit(const koopa_raw_slice_t &slice);
-void Visit(const koopa_raw_function_t &func);
-void Visit(const koopa_raw_basic_block_t &bb);
-// Reg Visit(const koopa_raw_value_t &value);
-int32_t Visit(const koopa_raw_value_t &value);
-void Visit(const koopa_raw_return_t &ret);
-// Reg Visit(const koopa_raw_integer_t &integer);
-int32_t Visit(const koopa_raw_integer_t &integer);
-int32_t Visit(const koopa_raw_binary_t &binary);
-int32_t Visit(const koopa_raw_load_t &load);
-void Visit(const koopa_raw_store_t &store);
-
 // Visit a raw program
 void Visit(const koopa_raw_program_t &program) {
     // Note: "values" and "funcs" are both "koopa_raw_slice_t" type
@@ -87,7 +74,7 @@ void Visit(const koopa_raw_function_t &func) {
 // Visit a basic block
 void Visit(const koopa_raw_basic_block_t &bb) {
     // if(bb->name)
-    //     std::cout << bb->name + 1 << ":" << std::endl;
+        std::cout << bb->name + 1 << ":\n";
     Visit(bb->insts);
 }
 
@@ -155,6 +142,12 @@ int32_t Visit(const koopa_raw_value_t &value) {
             VarRegMap[value] = retValue;
             VarOffsetMap[value] = -1;
             // print_reg_status();
+            break;
+        case KOOPA_RVT_BRANCH:
+            Visit(kind.data.branch);
+            break;  
+        case KOOPA_RVT_JUMP:
+            Visit(kind.data.jump);
             break;
         case KOOPA_RVT_RETURN:
             std::cout << "//ret\n";
@@ -384,5 +377,19 @@ void Visit(const koopa_raw_store_t &store)
         std::cout << "\tadd     s11, s11, sp\n";
         std::cout << "\tsw      " << RegName[regNum] << ", (s11)\n";
     }
+}
+
+void Visit(const koopa_raw_branch_t &branch)
+{
+    int32_t thisReg = Visit(branch.cond);
+    reset_regs(0);
+    std::cout << "\tbnez    " << RegName[thisReg] << ", " << (branch.true_bb->name + 1) << "\n";
+    std::cout << "\tj       " << (branch.false_bb->name + 1) << "\n";
+}
+
+void Visit(const koopa_raw_jump_t &jump)
+{
+    reset_regs(0);
+    std::cout << "\tj     " << (jump.target->name + 1) << "\n";
 }
 
