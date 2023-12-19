@@ -10,6 +10,7 @@
 
 #define REGNUM 16
 #define X0 15
+#define A0 7
 
 // In order to implement register allocation, this map should be modified to map into a union of "int32_t, register"
 std::unordered_map<koopa_raw_value_t, int32_t> VarOffsetMap;
@@ -24,6 +25,7 @@ int32_t RegStatus[16] = {};
 
 int32_t FrameSize = 0;
 int32_t StackTop = 0;
+uint32_t maxArgNum;
 koopa_raw_value_t CurValue, PreValue;
 bool saveRA = 0;
 
@@ -41,6 +43,7 @@ int32_t Visit(const koopa_raw_load_t &load);
 void Visit(const koopa_raw_store_t &store);
 void Visit(const koopa_raw_branch_t &branch);
 void Visit(const koopa_raw_jump_t &jump);
+void Visit(const koopa_raw_call_t &call);
 
 inline void mv_to_reg(koopa_raw_value_t val, std::string reg){
     if (val->kind.tag == KOOPA_RVT_INTEGER)
@@ -115,40 +118,54 @@ inline int32_t calc_type_size(const koopa_raw_type_t &ty)
 
 inline int32_t calc_inst_size(const koopa_raw_value_t &value)
 {
+    if (value->kind.tag == KOOPA_RVT_CALL){
+        // maxArgNum = max(maxArgNum, value->kind.data.call.args.len);
+        uint32_t argNum = value->kind.data.call.args.len;
+        if (argNum > maxArgNum)
+            maxArgNum = argNum;
+    }
+    if(value->ty->tag == KOOPA_RTT_UNIT)
+        return 0;
     if(value->kind.tag == KOOPA_RVT_ALLOC)
         return calc_type_size(value->ty->data.pointer.base);
-    else return calc_type_size(value->ty);
+    return calc_type_size(value->ty);
 }
 
 inline int32_t calc_bb_size(const koopa_raw_basic_block_t &bb)
 {
     // TODO: did not count params?
     int32_t size = 0;
-    for (uint32_t i = 0; i < bb->insts.len; i++){
+    for (int32_t i = 0; i < bb->insts.len; i++){
         const void *value = bb->insts.buffer[i];
-        saveRA = (((koopa_raw_value_t)value)->kind.tag == KOOPA_RVT_CALL);
+        if(((koopa_raw_value_t)value)->kind.tag == KOOPA_RVT_CALL)
+            saveRA = 1;
         size += calc_inst_size((koopa_raw_value_t)value);
     }
     return size;
 }
 
 inline void cal_frame_size(const koopa_raw_function_t &func){
-    // TODO: add a stack side calculator
-    // Currently, we use a fixed 256-byte frame for each function calling
-    FrameSize = 0;
-    StackTop = 0;
+    FrameSize = StackTop = 0;
+    maxArgNum = 0;
     for (int32_t i = 0; i < func->bbs.len; i++){
         FrameSize += calc_bb_size((koopa_raw_basic_block_t)func->bbs.buffer[i]);
     }
     
+    if(maxArgNum > 8){
+        int32_t argSize = (maxArgNum - 8) * 4;
+        FrameSize += argSize;
+        StackTop += argSize;
+    }
+    // TODO: change FrameSize calculation
     FrameSize = ceil(FrameSize / 16.0) * 16;
+    // FrameSize = (FrameSize + 15) / 16 * 16;
     FrameSize += saveRA ? 4 : 0;
     return;
 }
 
 inline void reset_regs(bool store_to_stack)
 {
-    for (int i = 0; i < REGNUM - 1; i++)
+    for (int32_t i = 0; i < REGNUM - 1; i++)
         if (RegStatus[i] > 0){
             RegStatus[i] = 0;
             auto preVal = RegValue[i];

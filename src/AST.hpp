@@ -14,76 +14,119 @@ static const std::string whileEndString = "\%while_end_";
 static int32_t varNum = 0;
 static int32_t ifElseNum = 0;
 static int32_t whileNum = 0;
+static bool isRetInt = 1;
 
 static std::vector<SymTabType> symTabs;
-static std::unordered_map<std::string, int32_t> symNameCount;
+static std::unordered_map<std::string, bool> isParam;
+static std::unordered_map<std::string, int32_t> symNameCount; // Map ident to its count
 static std::vector<int32_t> whileTab; // Recording current while layers
+static std::unordered_map<std::string, FuncInfo> FuncInfoList;
 
 // Base class for all ASTs
 class BaseAST {
     public:
     virtual ~BaseAST() = default;
 
-    virtual void Dump() const = 0;
-    virtual std::string DumpIR() const = 0;
-    virtual int32_t CalValue() const {
-        // NO Reached
-        return -1;
-    }
+    virtual std::string DumpIR() const{ assert(0); return 0; }
+    virtual int32_t CalValue() const{ assert(0); return -1; }
+    virtual std::string GetIdent() const{ assert(0); return ""; }
+    virtual std::string GetType() const{ assert(0); return ""; }
 };
 
 class CompUnitAST : public BaseAST {
     public:
-    std::unique_ptr<BaseAST> func_def;
-
-    void Dump() const override {
-        std::cout << "CompUnitAST { ";
-        func_def->Dump();
-        std::cout << " }";
-    }
-
-    std::string DumpIR() const override {
-        SymTabType globalSymTab;
-        symTabs.push_back(globalSymTab);
-        func_def->DumpIR();
-        symTabs.pop_back();
-        return "";
-    }
+        MulVecType funcDefs;
+        std::string DumpIR() const override {
+            libFuncDecl(); // Generate declaration for library functions
+            SymTabType globalSymTab;
+            symTabs.push_back(globalSymTab);
+            for (auto&& funcDef : funcDefs)
+                funcDef->DumpIR();            
+            symTabs.pop_back();
+            return "";
+        }
 };
 
 class FuncDefAST : public BaseAST {
     public:
-    std::string func_type;
+    std::string funcType;
     std::string ident;
     std::unique_ptr<BaseAST> block;
-
-    void Dump() const override {
-        std::cout << "FuncDefAST { " ;
-        std::cout << "FuncTypeAST { " << func_type << " }";
-        std::cout << ", " << ident << ", ";
-        block->Dump();
-        std::cout << " }" << std::endl;
-    }
+    MulVecType funcFParams;
 
     std::string DumpIR() const override {
-        std::cout << "fun @" << ident << "()";
-        if(func_type == "int")
+        std::string funcName = "@" + ident;
+        // assert(!symbol_tables[0].count(ident));
+        // assert(!function_table.count(ident));
+        FuncInfo funcInfo;
+        funcInfo.retType = funcType;
+        std::cout << "fun @" << ident << "(";
+
+        // for (int32_t i = 0; i < 0; i++){
+        for (int32_t i = 0; i < funcFParams.size(); i++){
+            ParamInfo paramInfo;
+            paramInfo.ident = funcFParams[i]->GetIdent();
+            paramInfo.name = funcFParams[i]->DumpIR();
+            paramInfo.type = funcFParams[i]->GetType();
+            // TODO: continue to finish the function.
+            // if (paramInfo.type != "i32"){
+            //     std::string tmp = names.back();
+            //     tmp[0] = '%';
+            //     list_dim[tmp] = funcFParams[i]->get_dim();
+            // }
+            funcInfo.paramInfoList.push_back(paramInfo);
+            std::cout << ": " << paramInfo.type;
+            if (i != funcFParams.size() - 1)
+                std::cout << ", ";
+        }
+        std::cout << ")";
+        FuncInfoList[ident] = funcInfo;
+        // function_param_idents[ident] = move(idents);
+        // function_param_names[ident] = move(names);
+        // function_param_types[ident] = move(types);
+        if(funcType == "int")
             std::cout << ": i32";
-        else assert(func_type == "void");
+        else assert(funcType == "void");
         std::cout << " {" << "\n";
         std::cout << "%entry_" << ident << ":\n";
+
+        isRetInt = (funcType == "int");
+            
         std::string blockEnd = block->DumpIR();
         if (blockEnd != "ret"){
-            if (func_type == "int")
+            if (funcType == "int")
                 std::cout << "\tret 0\n";
             else {
-                assert(func_type == "void");
+                assert(funcType == "void");
                 std::cout << "\tret\n";
             }
         }
         std::cout << "}\n\n";
         return blockEnd;
     }
+    std::string GetIdent() const override{ 
+        return ident; 
+    }
+};
+
+class FuncFParamAST : public BaseAST {
+    public:
+        std::string bType;
+        std::string ident;
+        std::string DumpIR() const override{
+            if(symNameCount.count(ident) == 0){
+                symNameCount[ident] = 0;
+            }
+            std::string symName = "@" + ident + "_" + std::to_string(symNameCount[ident]++);
+            std::cout << symName;
+            return symName;
+        }
+        std::string GetIdent() const override{
+            return ident;
+        }
+        std::string GetType() const override{
+            return "i32";
+        }
 };
 
 class DeclAST : public BaseAST
@@ -91,9 +134,7 @@ class DeclAST : public BaseAST
     public:
         enum {def_const, def_var} def;
         std::unique_ptr<BaseAST> decl;
-        void Dump() const override { 
-            decl->Dump(); 
-        }
+
         std::string DumpIR() const override { 
             return decl->DumpIR(); 
         }
@@ -107,10 +148,7 @@ class ConstDeclAST : public BaseAST
     public:
         std::string bType;
         MulVecType constDefs;
-        void Dump() const override { 
-            for (auto&& it : constDefs)
-                it->Dump();
-        }
+
         std::string DumpIR() const override { 
             for (auto&& it : constDefs)
                 it->DumpIR();
@@ -128,11 +166,7 @@ class ConstDefAST : public BaseAST
 public:
     std::string ident;
     std::unique_ptr<BaseAST> constInitVal;
-    void Dump() const override { 
-        std::cout << "ConstDefAST{" << ident << "=";
-        constInitVal->Dump();
-        std::cout << "} ";    
-    }
+
     std::string DumpIR() const override { 
         symTabs.back()[ident] = std::stoi(constInitVal->DumpIR());    
         // Note: the following code results in error
@@ -151,12 +185,14 @@ class ConstInitValAST : public BaseAST
 public:
     std::string ident;
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override { 
-        std::cout << subExp->CalValue();    
-    }
+
     std::string DumpIR() const override { 
         std::string retValue = std::to_string(subExp->CalValue());
         return retValue;
+    }
+    std::string GetIdent() const override{ 
+        return ident; 
+        // TODO: modify it after supporting list
     }
 };
 
@@ -165,11 +201,7 @@ class VarDeclAST : public BaseAST
 public:
     std::string bType;
     MulVecType varDefs;
-    void Dump() const override{
-        for(auto&& it : varDefs){
-            it->Dump();
-        }
-    }
+
     std::string DumpIR() const override{
         for (auto&& it : varDefs){
             it->DumpIR();
@@ -189,11 +221,7 @@ class VarDefAST : public BaseAST
 public:
     std::string ident;
     std::unique_ptr<BaseAST> initVal;
-    void Dump() const override { 
-        std::cout << "VarDefAST{" << ident << "=";
-        initVal->Dump();
-        std::cout << "} ";    
-    }
+
     std::string DumpIR() const override { 
         if(symNameCount.count(ident) == 0){
             symNameCount[ident] = 0;
@@ -218,38 +246,48 @@ class InitValAST : public BaseAST
 {
 public:
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override {
-        subExp->Dump();
-    }
+
     std::string DumpIR() const override {
         return subExp->DumpIR();
     }
     int32_t CalValue() const override {
         return subExp->CalValue();
     }
+    // std::string GetIdent() const override{ 
+    //     return ident; 
+    //     // TODO: modify it after supporting list
+    // }
 };
 
 class BlockAST : public BaseAST {
     public: 
         MulVecType blockItems;
         std::string func;
-        void Dump() const override {
-            std::cout << "BlockAST { ";
-                for (auto&& it : blockItems)
-                    it->Dump();
-            std::cout << " }" << std::endl;
-        }
         std::string DumpIR() const override {
-            std::string lastIR = "";
             SymTabType symTab;
+            if (func != ""){
+                FuncInfo funcInfo = FuncInfoList[func];
+                for (int32_t i = 0; i < funcInfo.paramInfoList.size(); i++){
+                    ParamInfo paramInfo = funcInfo.paramInfoList[i];
+                    std::string symName = paramInfo.name;
+                    symName[0] = '%';
+                    symTab[paramInfo.ident] = symName;
+                    isParam[symName] = 1;
+                    std::cout << '\t' << symName << " = alloc ";
+                    std::cout << paramInfo.type << "\n";
+                    std::cout << "\tstore " << paramInfo.name << ", " << symName << "\n";
+                }
+            }
             symTabs.push_back(symTab);
+
+            std::string blockEnd = "";
             for (auto&& it : blockItems){
-                lastIR = it->DumpIR();
-                if (lastIR == "ret" || lastIR == "break" || lastIR == "cont")
+                blockEnd = it->DumpIR();
+                if (blockEnd == "ret" || blockEnd == "break" || blockEnd == "cont")
                     break;
             }
             symTabs.pop_back();
-            return lastIR;        
+            return blockEnd;        
         }
 };
 
@@ -257,9 +295,7 @@ class BlockItemAST : public BaseAST {
     public: 
         enum {def_decl, def_stmt} def;
         std::unique_ptr<BaseAST> blockItem;
-    void Dump() const override {
-        blockItem->Dump();
-    }
+
     std::string DumpIR() const override {
         return blockItem->DumpIR();
     }
@@ -272,33 +308,6 @@ public:
     std::unique_ptr<BaseAST> subExp;
     std::unique_ptr<BaseAST> subStmt;
     std::unique_ptr<BaseAST> elseStmt;
-    void Dump() const override{
-        switch(def){
-            case def_simple:
-                std::cout << "StmtAST { ";
-                subExp->Dump();
-                std::cout << " } ";
-                break;
-            case def_openif:
-                std::cout << "IF { ";
-                subExp->Dump();
-                std::cout << " } THEN { ";
-                subStmt->Dump();
-                std::cout << " } ";
-                break;
-            case def_ifelse:
-                std::cout << "IF { ";
-                subExp->Dump();
-                std::cout << " } THEN { ";
-                subStmt->Dump();
-                std::cout << " } ELSE { ";
-                elseStmt->Dump();
-                std::cout << " } ";
-                break;
-            default: 
-                break;
-        }
-    }
     
     std::string DumpIR() const override{
         if(def == def_simple){
@@ -361,30 +370,6 @@ class StmtAST : public BaseAST {
         enum {def_lval, def_ret, def_exp, def_block, def_break, def_continue} def;
         std::string lVal;
         std::unique_ptr<BaseAST> subExp;
-        void Dump() const override {
-            if(def == def_lval){
-                std::cout << "LVal { " << lVal << " = ";
-                subExp->Dump();
-                std::cout << " }";            
-            }
-            else if(def == def_ret){
-                std::cout << "RETURN { ";
-                subExp->Dump();
-                std::cout << " }";
-            }
-            else if (def == def_exp){
-                if (subExp){
-                    std::cout << "EXP { ";
-                    subExp->Dump();
-                    std::cout << " } ";
-                }
-            }
-            else if (def == def_block){
-                std::cout << "BLOCK { ";
-                subExp->Dump();
-                std::cout << " } ";
-            }
-        }
 
         std::string DumpIR() const override {
             if(def == def_lval){
@@ -399,8 +384,9 @@ class StmtAST : public BaseAST {
                     std::cout << "\tret " << lastIR << "\n";    
                 }
                 else {
-                    std::cout << "\tret\n";
-                    // TODO: add functype. if functype == int, return 0;
+                    if(isRetInt)
+                        std::cout << "\tret 0\n";
+                    else std::cout << "\tret\n";
                 }        
                 return "ret";
             }
@@ -431,9 +417,7 @@ class ConstExpAST : public BaseAST
 {
 public:
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override { 
-        std::cout << subExp->CalValue(); 
-    }
+
     std::string DumpIR() const override{
         return std::to_string(subExp->CalValue());
     }
@@ -446,11 +430,7 @@ class ExpAST : public BaseAST
 {
 public:
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override{
-        std::cout << "ExpAST { ";
-        subExp->Dump();
-        std::cout << " } ";
-    }
+
     std::string DumpIR() const override{
         return subExp->DumpIR();
     }
@@ -466,30 +446,8 @@ public:
     std::unique_ptr<BaseAST> subExp;
     std::string lVal;
     // std::vector<std::unique_ptr<BaseAST>> exp_list;
-    int number;
-    void Dump() const override
-    {
-        if (def == def_bracketexp) {
-            subExp->Dump();
-        }
-        else if (def == def_number){
-            std::cout << number;
-        }
-        else if (def == def_lval){
-            std::cout << lVal;
-        }
-        // else if (type == PrimaryExpType::list)
-        // {
-        //     std::cout << lval;
-        //     for (auto&& exp : exp_list)
-        //     {
-        //         std::cout << '['; exp->dump(); std::cout << ']';
-        //     }
-        // }
-        // else assert(false);
-    }
+    int32_t number;
 
-    // TODO: modify the dumpIR algorithm
     std::string DumpIR() const override{
         std::string retValue = "";
         if (def == def_bracketexp){
@@ -538,28 +496,17 @@ public:
 class UnaryExpAST : public BaseAST
 {
 public:
-    enum {def_primaryexp, def_unaryexp} def;
+    enum {def_primaryexp, def_unaryexp, def_func} def;
     std::string op;
+    std::string ident;
     std::unique_ptr<BaseAST> subExp;
-    // std::string ident;
-    // std::vector<std::unique_ptr<BaseAST>> params;
-    void Dump() const override
-    {
-        if (def == def_unaryexp){
-            std::cout << op;
-            subExp->Dump();
-        }
-        else{
-            subExp->Dump();
-        }
-    }
+    MulVecType funcRParams;
     
-    std::string DumpIR() const override
-    {
-        if (def == def_primaryexp){
+    std::string DumpIR() const override{
+        if(def == def_primaryexp){
             return subExp->DumpIR();
         }
-        else if (def == def_unaryexp){
+        else if(def == def_unaryexp){
             std::string subexp = subExp->DumpIR();
             if (op == "+") {
                 return subexp;
@@ -572,7 +519,29 @@ public:
             }
             return "%" + std::to_string(varNum++);
         }
-        // TODO: More unaryexp types
+        else if(def == def_func){
+            // Generate codes to calculate parameters
+            FuncInfo funcInfo = FuncInfoList[ident];
+            std::string lastIR = "";
+            std::vector<std::string> params;
+            for (auto&& it : funcRParams)
+                params.push_back(it->DumpIR());
+            std::cout << "\t";
+            if (funcInfo.retType == "int"){
+                lastIR = getNewSymName();
+                std::cout << lastIR << " = ";
+            }
+            std::cout << "call @" << ident << "(";
+
+            // Print parameters
+            for (int32_t i = 0; i < params.size(); i++){
+                if(i != params.size() - 1)
+                    std::cout << params[i] << ", "; 
+                else std::cout << params[i];
+            }
+            std::cout << ")\n";
+            return lastIR;        
+        }
         else assert(false);
         return "";
     }
@@ -604,19 +573,6 @@ public:
     std::string op;
     std::unique_ptr<BaseAST> mulExp;
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override
-    {
-        if (op == ""){ 
-            // MulExp := UnaryExp
-            subExp->Dump();
-        }
-        else{
-            // MulExp := MulExp MulOp UnaryExp
-            mulExp->Dump();
-            std::cout << op;
-            subExp->Dump();
-        }
-    }
     
     std::string DumpIR() const override
     {
@@ -670,19 +626,6 @@ public:
     std::string op;
     std::unique_ptr<BaseAST> addExp;
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override
-    {
-        if (op == ""){ 
-            // AddExp := MulExp
-            subExp->Dump();
-        }
-        else{
-            // AddExp := AddExp AddOp MulExp
-            addExp->Dump();
-            std::cout << op;
-            subExp->Dump();
-        }
-    }
     
     std::string DumpIR() const override
     {
@@ -729,19 +672,7 @@ public:
     std::string op;
     std::unique_ptr<BaseAST> relExp;
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override
-    {
-        if (op == ""){ 
-            // RelExp := AddExp
-            subExp->Dump();
-        }
-        else{
-            // RelExp := RelExp RELOP AddExp
-            relExp->Dump();
-            std::cout << op;
-            subExp->Dump();
-        }
-    }
+
     std::string DumpIR() const override
     {
         if (op == ""){ 
@@ -802,19 +733,7 @@ public:
     std::string op;
     std::unique_ptr<BaseAST> eqExp;
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override
-    {
-        if (op == ""){ 
-            // EqExp := RelExp
-            subExp->Dump();
-        }
-        else{
-            // EqExp := EqExp EQOP RelExp
-            eqExp->Dump();
-            std::cout << op;
-            subExp->Dump();
-        }
-    }
+
     std::string DumpIR() const override
     {
         if (op == ""){ 
@@ -860,19 +779,6 @@ public:
     std::string op;
     std::unique_ptr<BaseAST> lAndExp;
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override
-    {
-        if (op == ""){ 
-            // LAndExp := EqExp
-            subExp->Dump();
-        }
-        else{
-            // LAndExp := LAndExp LANDOP EqExp
-            lAndExp->Dump();
-            std::cout << op;
-            subExp->Dump();
-        }
-    }
 
     std::string DumpIR() const override
     {
@@ -923,19 +829,6 @@ public:
     std::string op;
     std::unique_ptr<BaseAST> lOrExp;
     std::unique_ptr<BaseAST> subExp;
-    void Dump() const override
-    {
-        if (op == ""){ 
-            // LOrExp := LAndExp
-            subExp->Dump();
-        }
-        else{
-            // LOrExp := LOrExp LOROP LAndExp
-            lOrExp->Dump();
-            std::cout << op;
-            subExp->Dump();
-        }
-    }
 
     std::string DumpIR() const override{
         if (op == ""){ 
@@ -989,4 +882,28 @@ inline SymTabEntry symTabs_lookup(std::string lval){
 
 inline std::string getNewSymName(){
     return "%" + std::to_string(varNum++);
+}
+
+inline void libFuncDecl(){
+    std::cout << "decl @getint(): i32\n";
+    std::cout << "decl @getch(): i32\n";
+    std::cout << "decl @getarray(*i32): i32\n";
+    std::cout << "decl @putint(i32)\n";
+    std::cout << "decl @putch(i32)\n";
+    std::cout << "decl @putarray(i32, *i32)\n";
+    std::cout << "decl @starttime()\n";
+    std::cout << "decl @stoptime()\n";
+    std::cout << "\n";
+    
+    FuncInfo funcInfo;
+    funcInfo.retType = "int";
+    FuncInfoList["getint"] = funcInfo;
+    FuncInfoList["getch"] = funcInfo;
+    FuncInfoList["getarray"] = funcInfo;
+    funcInfo.retType = "void";
+    FuncInfoList["putint"] = funcInfo;
+    FuncInfoList["putch"] = funcInfo;
+    FuncInfoList["putarray"] = funcInfo;
+    FuncInfoList["starttime"] = funcInfo;
+    FuncInfoList["stoptime"] = funcInfo;
 }

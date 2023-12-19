@@ -6,8 +6,6 @@ void Visit(const koopa_raw_program_t &program) {
     // Note: "values" and "funcs" are both "koopa_raw_slice_t" type
     assert(program.values.kind == KOOPA_RSIK_VALUE);
     Visit(program.values);
-
-    std::cout << "\t.text" << "\n";
     assert(program.funcs.kind == KOOPA_RSIK_FUNCTION);
     Visit(program.funcs);
 }
@@ -34,7 +32,9 @@ void Visit(const koopa_raw_slice_t &slice) {
 
 // Visit a function
 void Visit(const koopa_raw_function_t &func) {
-    if(func->bbs.len == 0) return;
+    if(func->bbs.len == 0) // lib functions
+        return;
+    std::cout << "\t.text" << "\n";
     std::cout << "\t.globl " << func->name + 1 << "\n";
     std::cout << func->name + 1 << ":\n";
     assert(func->bbs.kind == KOOPA_RSIK_BASIC_BLOCK);
@@ -58,7 +58,22 @@ void Visit(const koopa_raw_function_t &func) {
             std::cout << "\tsw      ra, (s11)\n";
         }
     }
-    print_stack_size();
+    print_stack_size(); // for debug
+
+    // Store parameters in the value map
+    for (int32_t i = 0; i < func->params.len; i++){
+        koopa_raw_value_t param = 
+            reinterpret_cast<koopa_raw_value_t>(func->params.buffer[i]);
+        if (i < 8){
+            VarOffsetMap[param] = -1;
+            VarRegMap[param] = i + 7;
+        }
+        else{
+            VarOffsetMap[param] = FrameSize + (i - 8) * 4;
+            VarRegMap[param] = -1;
+        }
+    }
+    
     Visit(func->bbs);
     std::cout << "\n";
 
@@ -73,7 +88,7 @@ void Visit(const koopa_raw_function_t &func) {
 
 // Visit a basic block
 void Visit(const koopa_raw_basic_block_t &bb) {
-    // if(bb->name)
+    if(bb->name)
         std::cout << bb->name + 1 << ":\n";
     Visit(bb->insts);
 }
@@ -102,11 +117,11 @@ int32_t Visit(const koopa_raw_value_t &value) {
     }
 
     const auto &kind = value->kind;
-    int32_t retValue = 0;
+    int32_t lastReg = 0;
     // See line 383 of koopa.h for the full tag list
     switch (kind.tag) {
         case KOOPA_RVT_INTEGER:
-            retValue = Visit(kind.data.integer);
+            lastReg = Visit(kind.data.integer);
             break;
         case KOOPA_RVT_ALLOC:
             /// Memory allocation.
@@ -124,8 +139,8 @@ int32_t Visit(const koopa_raw_value_t &value) {
         case KOOPA_RVT_LOAD:
             /// Memory store.   
             std::cout << "//load\n";
-            retValue = Visit(kind.data.load);
-            VarRegMap[value] = retValue;
+            lastReg = Visit(kind.data.load);
+            VarRegMap[value] = lastReg;
             VarOffsetMap[value] = -1;
             print_stack_size();
             // print_reg_status();
@@ -138,8 +153,8 @@ int32_t Visit(const koopa_raw_value_t &value) {
             break;
         case KOOPA_RVT_BINARY:
             std::cout << "//binary\n";
-            retValue = Visit(kind.data.binary);
-            VarRegMap[value] = retValue;
+            lastReg = Visit(kind.data.binary);
+            VarRegMap[value] = lastReg;
             VarOffsetMap[value] = -1;
             // print_reg_status();
             break;
@@ -148,6 +163,15 @@ int32_t Visit(const koopa_raw_value_t &value) {
             break;  
         case KOOPA_RVT_JUMP:
             Visit(kind.data.jump);
+            break;
+        case KOOPA_RVT_CALL:
+            Visit(kind.data.call);
+            VarOffsetMap[value] = -1;
+            VarRegMap[value] = lastReg = A0;
+            if (value->ty->tag != KOOPA_RTT_UNIT) { // has ret
+                RegValue[lastReg] = value;
+                RegStatus[lastReg] = 1;
+            }   
             break;
         case KOOPA_RVT_RETURN:
             std::cout << "//ret\n";
@@ -158,7 +182,7 @@ int32_t Visit(const koopa_raw_value_t &value) {
         default:
             assert(false);
     }
-    return retValue;
+    return lastReg;
 }
 
 void Visit(const koopa_raw_return_t &ret){
@@ -168,10 +192,11 @@ void Visit(const koopa_raw_return_t &ret){
     }
     reset_regs(0);
     if (saveRA){
-        if (FrameSize - 4 >= -2048 && FrameSize - 4 <= 2047)
-            std::cout << "\tlw      ra, " << FrameSize - 4 << "(sp)\n";
+        int32_t actualSize = FrameSize - 4;
+        if (actualSize >= -2048 && actualSize <= 2047)
+            std::cout << "\tlw      ra, " << actualSize << "(sp)\n";
         else{
-            std::cout << "\tli      t0, " << FrameSize - 4 << "\n";
+            std::cout << "\tli      t0, " << actualSize << "\n";
             std::cout << "\tadd     t0, sp, t0\n";
             std::cout << "\tlw      ra, (t0)\n";
         }
@@ -309,7 +334,7 @@ int32_t Visit(const koopa_raw_load_t &load){
     // else if (src->kind.tag == KOOPA_RVT_GET_ELEM_PTR || src->kind.tag == KOOPA_RVT_GET_PTR) {
     //     struct Reg result_var = {choose_reg(2), -1};
     //     struct Reg src_var = Visit(load.src);
-    //     reg_stats[result_var.regNum] = 1;
+    //     RegStatus[result_var.regNum] = 1;
     //     std::cout << "\tlw " << RegName[result_var.regNum] << ", (" <<
     //         RegName[src_var.regNum] << ")" << std::endl;
     //     return result_var;
@@ -337,7 +362,7 @@ void Visit(const koopa_raw_store_t &store)
     koopa_raw_value_t dest = store.dest;
     // if (dest->kind.tag == KOOPA_RVT_GLOBAL_ALLOC){
     //     std::cout << "\tla    s11, " << global_values[dest] << std::endl;
-    //     std::cout << "\tsw    " << reg_names[value.reg_name] << ", 0(s11)" <<
+    //     std::cout << "\tsw    " << RegName[value.reg_name] << ", 0(s11)" <<
     //         std::endl;
     //     return;
     // }
@@ -360,7 +385,7 @@ void Visit(const koopa_raw_store_t &store)
         StackTop += 4;
     }
     else  {
-        for (int i = 0; i < REGNUM; i++){
+        for (int32_t i = 0; i < REGNUM; i++){
             if (i == regNum)
                 continue;
             else if (RegStatus[i] > 0 && VarOffsetMap[RegValue[i]] == VarOffsetMap[dest]){
@@ -393,3 +418,36 @@ void Visit(const koopa_raw_jump_t &jump)
     std::cout << "\tj     " << (jump.target->name + 1) << "\n";
 }
 
+void Visit(const koopa_raw_call_t &call)
+{
+    // TODO: put return register info in value_map
+    std::vector<int32_t> old_stats;
+    reset_regs(1);
+    for (int32_t i = 0; i < call.args.len; i++){
+        auto ptr = call.args.buffer[i];
+        koopa_raw_value_t arg = reinterpret_cast<koopa_raw_value_t>(ptr);
+        int32_t lastReg = Visit(arg);
+        // assert(lastReg);
+        if (i < 8){
+            if (lastReg != i + 7)
+                std::cout << "\tmv      " << RegName[i + 7] << ", " << RegName[lastReg] << "\n";
+            old_stats.push_back(RegStatus[i + 7]);
+            RegStatus[i + 7] = 2;
+        }
+        else  {
+            int32_t paramOffset = (i - 8) * 4;
+            if (paramOffset >= -2048 && paramOffset <= 2047)
+                std::cout << "\tsw      " << RegName[lastReg] << ", " << paramOffset << "(sp)\n";
+            else{
+                std::cout << "\tli      s11, " << paramOffset << "\n";
+                std::cout << "\tadd     s11, s11, sp" << "\n";
+                std::cout << "\tsw      " << RegName[lastReg] << ", (s11)\n";
+            }
+        }
+    }
+    for (int32_t i = 0; i < old_stats.size(); i++)
+        RegStatus[i + 7] = old_stats[i];
+    std::cout << "\tcall    " << call.callee->name + 1 << "\n";
+    reset_regs(0);
+    return;
+}

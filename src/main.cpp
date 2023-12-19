@@ -32,12 +32,8 @@ int main(int argc, const char *argv[]) {
     auto ret = yyparse(ast);
     assert(!ret);
 
-    // For test: dump AST
-    if(mode == "-test"){
-        ast->Dump();
-    }
     // Output Koopa IR
-    else if(mode == "-koopa"){
+    if(mode == "-koopa"){
         ast->DumpIR(); 
     }
     // Output RISC-V

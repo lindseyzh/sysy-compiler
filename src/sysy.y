@@ -46,25 +46,35 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef Block BlockItem Stmt ComplexStmt OpenStmt ClosedStmt
+%type <ast_val> FuncDef Block BlockItem Stmt ComplexStmt OpenStmt ClosedStmt 
 %type <ast_val> Decl ConstDecl ConstDef ConstInitVal VarDecl VarDef InitVal
 %type <ast_val> Exp ConstExp PrimaryExp UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp
-%type <mul_val> BlockItems ConstDefs VarDefs // FuncFParams FuncRParams
+%type <mul_val> BlockItems ConstDefs VarDefs FuncFParams FuncRParams
+%type <ast_val> CompUnitList FuncFParam
 %type <int_val> Number
 %type <str_val> Type LVal
 
 %%
 
-// 开始符, CompUnit ::= FuncDef, 大括号后声明了解析完成后 parser 要做的事情
-// 之前我们定义了 FuncDef 会返回一个 str_val, 也就是字符串指针
-// 而 parser 一旦解析完 CompUnit, 就说明所有的 token 都被解析了, 即解析结束了
-// 此时我们应该把 FuncDef 返回的结果收集起来, 作为 AST 传给调用 parser 的函数
-// $1 指代规则里第一个符号的返回值, 也就是 FuncDef 的返回值
 CompUnit
-  : FuncDef {
-    auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
+  : CompUnitList {
+    auto comp_unit = unique_ptr<BaseAST>($1);
     ast = move(comp_unit);
+  }
+  ;
+
+CompUnitList
+  : FuncDef {
+    auto comp_unit = new CompUnitAST();
+    auto func_def = unique_ptr<BaseAST>($1);
+    comp_unit->funcDefs.push_back(move(func_def));
+    $$ = comp_unit;
+  }
+  | CompUnitList FuncDef {
+    auto comp_unit = (CompUnitAST*)($1);
+    auto func_def = unique_ptr<BaseAST>($2);
+    comp_unit->funcDefs.push_back(move(func_def));
+    $$ = comp_unit;
   }
   ;
 
@@ -72,10 +82,56 @@ CompUnit
 FuncDef
   : Type IDENT '(' ')' Block {
     auto func_def = new FuncDefAST();
-    func_def->func_type = *unique_ptr<string>($1); // Type
-    func_def->ident = *unique_ptr<string>($2); // IDENT
-    func_def->block = unique_ptr<BaseAST>($5); // Block
+    func_def->funcType = *unique_ptr<string>($1);
+    func_def->ident = *unique_ptr<string>($2);
+    func_def->block = unique_ptr<BaseAST>($5);
     $$ = func_def;
+  }
+  | Type IDENT '(' FuncFParams ')' Block {
+    auto func_def = new FuncDefAST();
+    func_def->funcType = *unique_ptr<string>($1);
+    func_def->ident = *unique_ptr<string>($2);
+    MulVecType *vec = ($4);
+    for (auto it = vec->begin(); it != vec->end(); it++)
+        func_def->funcFParams.push_back(move(*it));
+    func_def->block = unique_ptr<BaseAST>($6);
+    ((BlockAST*)(func_def->block).get())->func = func_def->ident;
+    $$ = func_def;
+  }
+  ;
+
+FuncFParams
+  : FuncFParam {
+    MulVecType *vec = new MulVecType;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncFParams ',' FuncFParam {
+    MulVecType *vec = ($1);
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+  ;
+
+FuncFParam
+  : Type IDENT {
+    auto func_f_param = new FuncFParamAST();
+    func_f_param->bType = *unique_ptr<string>($1);
+    func_f_param->ident = *unique_ptr<string>($2);
+    $$ = func_f_param;
+  }
+  ;
+
+FuncRParams
+  : Exp {
+    MulVecType *vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncRParams ',' Exp {
+    MulVecType *vec = ($1);
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
   }
   ;
 
@@ -108,8 +164,8 @@ ConstDecl
   : CONST Type ConstDefs ';' {
     auto const_decl = new ConstDeclAST();
     const_decl->bType = *unique_ptr<string>($2);
-    MulVecType *tmp = ($3);
-    for (auto it = tmp->begin(); it != tmp->end(); it++)
+    MulVecType *vec = ($3);
+    for (auto it = vec->begin(); it != vec->end(); it++)
       const_decl->constDefs.push_back(move(*it));
     $$ = const_decl;
   }
@@ -150,8 +206,8 @@ VarDecl
   : Type VarDefs ';' {
     auto var_decl = new VarDeclAST();
     var_decl->bType = *unique_ptr<string>($1);
-    MulVecType *tmp = ($2);
-    for (auto it = tmp->begin(); it != tmp->end(); it++)
+    MulVecType *vec = ($2);
+    for (auto it = vec->begin(); it != vec->end(); it++)
         var_decl->varDefs.push_back(move(*it));
     $$ = var_decl;
   }
@@ -196,8 +252,8 @@ InitVal
 Block
   : '{' BlockItems '}' {
     auto block = new BlockAST();
-    MulVecType *tmp = ($2);
-    for (auto it = tmp->begin(); it != tmp->end(); it++)
+    MulVecType *vec = ($2);
+    for (auto it = vec->begin(); it != vec->end(); it++)
       block->blockItems.push_back(move(*it));
     $$ = block;
   }
@@ -408,6 +464,21 @@ UnaryExp
     unary_exp->subExp = unique_ptr<BaseAST>($2);
     $$ = unary_exp;
   }
+  | IDENT '(' ')' {
+    auto unary_exp = new UnaryExpAST();
+    unary_exp->def = UnaryExpAST::def_func;
+    unary_exp->ident = *unique_ptr<string>($1);
+    $$ = unary_exp;
+  }
+  | IDENT '(' FuncRParams ')' {
+    auto unary_exp = new UnaryExpAST();
+    unary_exp->def = UnaryExpAST::def_func;
+    unary_exp->ident = *unique_ptr<string>($1);
+    vector<unique_ptr<BaseAST>> *vec = ($3);
+    for (auto it = vec->begin(); it != vec->end(); it++)
+        unary_exp->funcRParams.push_back(move(*it));
+    $$ = unary_exp;
+  }
   ;
 
 MulExp
@@ -505,14 +576,5 @@ LOrExp
 // 定义错误处理函数, 其中第二个参数是错误信息
 // parser 如果发生错误 (例如输入的程序出现了语法错误), 就会调用这个函数
 void yyerror(unique_ptr<BaseAST> &ast, const char *s) {
-  extern int yylineno;    // defined and maintained in lex
-    extern char *yytext;    // defined and maintained in lex
-    int len=strlen(yytext);
-    int i;
-    char buf[512]={0};
-    for (i=0;i<len;++i)
-    {
-        sprintf(buf,"%s%d", buf, yytext[i]);
-    }
-    fprintf(stderr, "ERROR: %s at symbol '%s' on line %d\n", s, buf, yylineno);
+    fprintf(stderr, "ERROR\n");
 }
