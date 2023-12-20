@@ -29,6 +29,9 @@ uint32_t maxArgNum;
 koopa_raw_value_t CurValue, PreValue;
 bool saveRA = 0;
 
+int32_t GlobalVarCount = 0;
+std::unordered_map<koopa_raw_value_t, std::string> GlobalVarTab;
+
 void Visit(const koopa_raw_program_t &program);
 void Visit(const koopa_raw_slice_t &slice);
 void Visit(const koopa_raw_function_t &func);
@@ -44,6 +47,7 @@ void Visit(const koopa_raw_store_t &store);
 void Visit(const koopa_raw_branch_t &branch);
 void Visit(const koopa_raw_jump_t &jump);
 void Visit(const koopa_raw_call_t &call);
+std::string Visit(const koopa_raw_global_alloc_t &global_alloc);
 
 inline void mv_to_reg(koopa_raw_value_t val, std::string reg){
     if (val->kind.tag == KOOPA_RVT_INTEGER)
@@ -157,9 +161,8 @@ inline void cal_frame_size(const koopa_raw_function_t &func){
         StackTop += argSize;
     }
     // TODO: change FrameSize calculation
-    FrameSize = ceil(FrameSize / 16.0) * 16;
-    // FrameSize = (FrameSize + 15) / 16 * 16;
     FrameSize += saveRA ? 4 : 0;
+    FrameSize = (FrameSize + 15) / 16 * 16;
     return;
 }
 
@@ -190,6 +193,7 @@ inline void reset_regs(bool store_to_stack)
 }
 
 inline void print_stack_size(){
+    return;
     std::cout << "// StackTop=" << StackTop << ", FrameSize=" << FrameSize << std::endl;
 }
 

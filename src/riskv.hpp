@@ -67,6 +67,8 @@ void Visit(const koopa_raw_function_t &func) {
         if (i < 8){
             VarOffsetMap[param] = -1;
             VarRegMap[param] = i + 7;
+            RegStatus[i + 7] = 1;
+            RegValue[i + 7] = param;
         }
         else{
             VarOffsetMap[param] = FrameSize + (i - 8) * 4;
@@ -125,7 +127,7 @@ int32_t Visit(const koopa_raw_value_t &value) {
             break;
         case KOOPA_RVT_ALLOC:
             /// Memory allocation.
-            std::cout << "//alloc\n";
+            // std::cout << "//alloc\n";
             assert(value->ty->tag == KOOPA_RTT_POINTER);
             VarRegMap[value] = -1;
             VarOffsetMap[value] = StackTop;            
@@ -135,10 +137,14 @@ int32_t Visit(const koopa_raw_value_t &value) {
             break;
         case KOOPA_RVT_GLOBAL_ALLOC:
             /// Memory load.
+            GlobalVarTab[value] = Visit(kind.data.global_alloc);
+            // Note: the following code results in error. Should not define a new variant in "switch()".
+            // std::string globalVar = Visit(kind.data.global_alloc);
+            // GlobalVarTab[value] = globalVar; 
             break;
         case KOOPA_RVT_LOAD:
             /// Memory store.   
-            std::cout << "//load\n";
+            // std::cout << "//load\n";
             lastReg = Visit(kind.data.load);
             VarRegMap[value] = lastReg;
             VarOffsetMap[value] = -1;
@@ -147,12 +153,12 @@ int32_t Visit(const koopa_raw_value_t &value) {
             break;
         case KOOPA_RVT_STORE:
             /// Pointer calculation.
-            std::cout << "//store\n";
+            // std::cout << "//store\n";
             Visit(kind.data.store);
             // print_reg_status();
             break;
         case KOOPA_RVT_BINARY:
-            std::cout << "//binary\n";
+            // std::cout << "//binary\n";
             lastReg = Visit(kind.data.binary);
             VarRegMap[value] = lastReg;
             VarOffsetMap[value] = -1;
@@ -162,9 +168,11 @@ int32_t Visit(const koopa_raw_value_t &value) {
             Visit(kind.data.branch);
             break;  
         case KOOPA_RVT_JUMP:
+            // std::cout << "//jump\n";
             Visit(kind.data.jump);
             break;
         case KOOPA_RVT_CALL:
+            // std::cout << "//call\n";
             Visit(kind.data.call);
             VarOffsetMap[value] = -1;
             VarRegMap[value] = lastReg = A0;
@@ -174,7 +182,7 @@ int32_t Visit(const koopa_raw_value_t &value) {
             }   
             break;
         case KOOPA_RVT_RETURN:
-            std::cout << "//ret\n";
+            // std::cout << "//ret\n";
             Visit(kind.data.ret);
             print_stack_size();
             // print_reg_status();
@@ -244,14 +252,32 @@ int32_t Visit(const koopa_raw_binary_t &binary){
     // TODO: register allocation. 
     switch(binary.op){
         case KOOPA_RBO_NOT_EQ:
-            std::cout << "\txor     " << ans_reg << ", " << lhs_reg << ", "
-                << rhs_reg << "\n";
-            std::cout << "\tsnez    " << ans_reg << ", " << ans_reg << "\n";
+            // if (lhs_reg == "x0"){
+            //     std::cout << "\tsnez    " << ans_reg << ", " << rhs_reg << "\n";
+            //     break;
+            // }
+            // else if (rhs_reg == "x0"){
+            //     std::cout << "\tsnez    " << ans_reg << ", " << lhs_reg << "\n";
+            // }
+            // else {
+                std::cout << "\txor     " << ans_reg << ", " << lhs_reg << ", "
+                    << rhs_reg << "\n";
+                std::cout << "\tsnez    " << ans_reg << ", " << ans_reg << "\n";
+            // }
             break;
         case KOOPA_RBO_EQ:
-            std::cout << "\txor     " << ans_reg << ", " << lhs_reg << ", "
-                << rhs_reg << "\n";
-            std::cout << "\tseqz    " << ans_reg << ", " << ans_reg << "\n";
+            // if (lhs_reg == "x0"){
+            //     std::cout << "\tseqz    " << ans_reg << ", " << rhs_reg << "\n";
+            //     break;
+            // }
+            // else if (rhs_reg == "x0"){
+            //     std::cout << "\tseqz    " << ans_reg << ", " << lhs_reg << "\n";
+            // }
+            // else {
+                std::cout << "\txor     " << ans_reg << ", " << lhs_reg << ", "
+                    << rhs_reg << "\n";
+                std::cout << "\tseqz    " << ans_reg << ", " << ans_reg << "\n";
+            // }
             break;
         case KOOPA_RBO_GT:
             std::cout << "\tsgt     " << ans_reg << ", " << lhs_reg << ", "
@@ -322,16 +348,13 @@ int32_t Visit(const koopa_raw_binary_t &binary){
 }
 
 int32_t Visit(const koopa_raw_load_t &load){
-    koopa_raw_value_t src = load.src;
-    // if (src->kind.tag == KOOPA_RVT_GLOBAL_ALLOC){
-    //     int32_t regNum = choose_reg(1, CurValue);
-    //     std::cout << "\tla " << RegName[regNum] << ", " <<
-    //         global_values[src] << "\n";
-    //     std::cout << "\tlw "<< RegName[regNum] << ", 0(" <<
-    //         RegName[regNum] << ")\n";
-    //     return regNum;
-    // }
-    // else if (src->kind.tag == KOOPA_RVT_GET_ELEM_PTR || src->kind.tag == KOOPA_RVT_GET_PTR) {
+    if (load.src->kind.tag == KOOPA_RVT_GLOBAL_ALLOC){
+        int32_t regNum = choose_reg(1, CurValue);
+        std::cout << "\tla      " << RegName[regNum] << ", " << GlobalVarTab[load.src] << "\n";
+        std::cout << "\tlw      "<< RegName[regNum] << ", 0(" << RegName[regNum] << ")\n";
+        return regNum;
+    }
+    // if (load.src->kind.tag == KOOPA_RVT_GET_ELEM_PTR || load.src->kind.tag == KOOPA_RVT_GET_PTR) {
     //     struct Reg result_var = {choose_reg(2), -1};
     //     struct Reg src_var = Visit(load.src);
     //     RegStatus[result_var.regNum] = 1;
@@ -340,11 +363,11 @@ int32_t Visit(const koopa_raw_load_t &load){
     //     return result_var;
     // }
 
-    if (VarRegMap[src] >= 0){ // if stored in a register
-        return VarRegMap[src];
+    if (VarRegMap[load.src] >= 0){ // if stored in a register
+        return VarRegMap[load.src];
     }
     int32_t regNum = choose_reg(1, CurValue);
-    int32_t varOffset = VarOffsetMap[src];
+    int32_t varOffset = VarOffsetMap[load.src];
     if (varOffset >= -2048 && varOffset <= 2047){
         std::cout << "\tlw      " << RegName[regNum] << ", " << varOffset << "(sp)\n";
     }
@@ -360,22 +383,21 @@ void Visit(const koopa_raw_store_t &store)
 {
     int32_t regNum = Visit(store.value);
     koopa_raw_value_t dest = store.dest;
-    // if (dest->kind.tag == KOOPA_RVT_GLOBAL_ALLOC){
-    //     std::cout << "\tla    s11, " << global_values[dest] << std::endl;
-    //     std::cout << "\tsw    " << RegName[value.reg_name] << ", 0(s11)" <<
-    //         std::endl;
-    //     return;
-    // }
-    // else if (dest->kind.tag == KOOPA_RVT_GET_ELEM_PTR ||
+    if (dest->kind.tag == KOOPA_RVT_GLOBAL_ALLOC){
+        std::cout << "\tla      s11, " << GlobalVarTab[dest] << "\n";
+        std::cout << "\tsw      " << RegName[regNum] << ", 0(s11)\n";
+        return;
+    }
+    // if (dest->kind.tag == KOOPA_RVT_GET_ELEM_PTR ||
     //     dest->kind.tag == KOOPA_RVT_GET_PTR)
     // {
-    //     int old_stat = reg_stats[value.reg_name];
-    //     reg_stats[value.reg_name] = 2;
+    //     int old_stat = RegStatus[regNum];
+    //     RegStatus[regNum] = 2;
     //     struct Reg dest_var = Visit(dest);
     //     assert(dest_var.reg_name >= 0);
-    //     reg_stats[value.reg_name] = old_stat;
-    //     std::cout << "\tsw    " << reg_names[value.reg_name] << ", (" <<
-    //         reg_names[dest_var.reg_name] << ")" << std::endl;
+    //     RegStatus[regNum] = old_stat;
+    //     std::cout << "\tsw    " << reg_names[regNum] << ", (" <<
+    //         reg_names[dest_var.reg_name] << ")" << "\n";
     //     return;
     // }
     // print_reg_status();
@@ -451,3 +473,24 @@ void Visit(const koopa_raw_call_t &call)
     reset_regs(0);
     return;
 }
+
+std::string Visit(const koopa_raw_global_alloc_t &global_alloc)
+{
+    std::string symName = "glb_" + std::to_string(GlobalVarCount++);
+    std::cout << "\t.data\n";
+    std::cout << "\t.globl " << symName << "\n";
+    std::cout << symName << ":\n";
+    if(global_alloc.init->kind.tag == KOOPA_RVT_ZERO_INIT){
+        std::cout << "\t.zero " << calc_type_size(global_alloc.init->ty) << "\n";
+    }
+    else if(global_alloc.init->kind.tag == KOOPA_RVT_INTEGER){
+        std::cout << "\t.word " << global_alloc.init->kind.data.integer.value << "\n";
+    }
+    // else if(global_alloc.init->kind.tag == KOOPA_RVT_AGGREGATE){
+        // init_aggregate(global_alloc.init);
+        // std::cout << "\n"; 
+    // }
+    else assert(0);
+    return symName;
+}
+

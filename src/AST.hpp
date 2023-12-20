@@ -31,17 +31,21 @@ class BaseAST {
     virtual int32_t CalValue() const{ assert(0); return -1; }
     virtual std::string GetIdent() const{ assert(0); return ""; }
     virtual std::string GetType() const{ assert(0); return ""; }
+    virtual std::string DumpGlobalIR() const{ assert(0); return 0; }
 };
 
 class CompUnitAST : public BaseAST {
     public:
         MulVecType funcDefs;
+        MulVecType decls;
         std::string DumpIR() const override {
             libFuncDecl(); // Generate declaration for library functions
             SymTabType globalSymTab;
             symTabs.push_back(globalSymTab);
-            for (auto&& funcDef : funcDefs)
-                funcDef->DumpIR();            
+            for (auto&& it : decls)
+                it->DumpGlobalIR();            
+            for (auto&& it : funcDefs)
+                it->DumpIR();            
             symTabs.pop_back();
             return "";
         }
@@ -141,6 +145,9 @@ class DeclAST : public BaseAST
         int32_t CalValue() const override { 
             return decl->CalValue(); 
         }
+        std::string DumpGlobalIR() const override { 
+            return decl->DumpGlobalIR(); 
+        }
 };
 
 class ConstDeclAST : public BaseAST
@@ -159,87 +166,122 @@ class ConstDeclAST : public BaseAST
                 it->CalValue();
             return 0;
         }
+        std::string DumpGlobalIR() const override { 
+            for (auto&& it : constDefs)
+                it->DumpGlobalIR(); 
+            return "";
+        }
 };
 
 class ConstDefAST : public BaseAST
 {
-public:
-    std::string ident;
-    std::unique_ptr<BaseAST> constInitVal;
+    public:
+        std::string ident;
+        std::unique_ptr<BaseAST> initVal;
 
-    std::string DumpIR() const override { 
-        symTabs.back()[ident] = std::stoi(constInitVal->DumpIR());    
-        // Note: the following code results in error
-        // auto curSymTab = symTabs.back();
-        // curSymTab[ident] = std::stoi(constInitVal->DumpIR());    
-        return "";
+        std::string DumpIR() const override { 
+            symTabs.back()[ident] = std::stoi(initVal->DumpIR());    
+            // Note: the following code results in error
+            // auto curSymTab = symTabs.back();
+            // curSymTab[ident] = std::stoi(initVal->DumpIR());    
+            return "";
+        }
+        int32_t CalValue() const override { 
+            symTabs.back()[ident] = std::stoi(initVal->DumpIR());    
+            return 0;
+        }
+        std::string DumpGlobalIR() const override { 
+            symTabs.back()[ident] = std::stoi(initVal->DumpIR());  
+            return "";
     }
-    int32_t CalValue() const override { 
-        symTabs.back()[ident] = std::stoi(constInitVal->DumpIR());    
-        return 0;
-    }
+
 };
 
 class ConstInitValAST : public BaseAST
 {
-public:
-    std::string ident;
-    std::unique_ptr<BaseAST> subExp;
+    public:
+        std::string ident;
+        std::unique_ptr<BaseAST> subExp;
 
-    std::string DumpIR() const override { 
-        std::string retValue = std::to_string(subExp->CalValue());
-        return retValue;
-    }
-    std::string GetIdent() const override{ 
-        return ident; 
-        // TODO: modify it after supporting list
-    }
+        std::string DumpIR() const override { 
+            std::string retValue = std::to_string(subExp->CalValue());
+            return retValue;
+        }
+        std::string GetIdent() const override{ 
+            return ident; 
+            // TODO: modify it after supporting list
+        }
+        std::string DumpGlobalIR() const override { 
+            return "";
+        }
 };
 
 class VarDeclAST : public BaseAST
 {
-public:
-    std::string bType;
-    MulVecType varDefs;
+    public:
+        std::string bType;
+        MulVecType varDefs;
 
-    std::string DumpIR() const override{
-        for (auto&& it : varDefs){
-            it->DumpIR();
+        std::string DumpIR() const override{
+            for (auto&& it : varDefs){
+                it->DumpIR();
+            }
+            return "";
         }
-        return "";
-    }
-    int32_t CalValue() const override {
-        for (auto&& it : varDefs){
-            it->CalValue();
+        int32_t CalValue() const override {
+            for (auto&& it : varDefs){
+                it->CalValue();
+            }
+            return 0;
         }
-        return 0;
-    }
+        std::string DumpGlobalIR() const override { 
+            for (auto&& it : varDefs)
+                it->DumpGlobalIR(); 
+            return "";
+        }
 };
 
 class VarDefAST : public BaseAST
 {
-public:
-    std::string ident;
-    std::unique_ptr<BaseAST> initVal;
+    public:
+        std::string ident;
+        std::unique_ptr<BaseAST> initVal;
 
-    std::string DumpIR() const override { 
-        if(symNameCount.count(ident) == 0){
-            symNameCount[ident] = 0;
+        std::string DumpIR() const override { 
+            if(symNameCount.count(ident) == 0){
+                symNameCount[ident] = 0;
+            }
+            int32_t symNameTag = symNameCount[ident]++;
+            std::string symName = "@" + ident + "_" + std::to_string(symNameTag);
+            std::cout << "\t" << symName << " = alloc i32\n";
+            symTabs.back()[ident] = symName;
+            if (initVal){
+                std::string lastIR = initVal->DumpIR();
+                std::cout << "\tstore " << lastIR << ", " << symName << "\n";
+            }
+            return symName;
         }
-        int32_t symNameTag = symNameCount[ident]++;
-        std::string symName = "@" + ident + "_" + std::to_string(symNameTag);
-        std::cout << "\t" << symName << " = alloc i32\n";
-        symTabs.back()[ident] = symName;
-        if (initVal){
-            std::string lastIR = initVal->DumpIR();
-            std::cout << "\tstore " << lastIR << ", " << symName << "\n";
+        int32_t CalValue() const override { 
+            symTabs.back()[ident] = std::stoi(initVal->DumpIR());    
+            return 0;
         }
-        return symName;
-    }
-    int32_t CalValue() const override { 
-        symTabs.back()[ident] = std::stoi(initVal->DumpIR());    
-        return 0;
-    }
+        std::string DumpGlobalIR() const override { 
+            if(!symNameCount[ident]){
+                symNameCount[ident] = 0;
+            }
+            int32_t symNameTag = symNameCount[ident]++;
+            std::string symName = "@" + ident + "_" + std::to_string(symNameTag);
+            symTabs.back()[ident] = symName;
+            std::string initValIR;
+            if (initVal){
+                initValIR = initVal->DumpIR();
+            }
+            std::cout << "global " << symName << " = alloc i32, ";
+            if(initVal && initValIR != "0")
+                std::cout << initValIR << "\n";
+            else std::cout << "zeroinit\n";
+            return "";
+        }
 };
 
 class InitValAST : public BaseAST

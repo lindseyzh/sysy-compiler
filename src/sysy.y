@@ -59,7 +59,7 @@ using namespace std;
 CompUnit
   : CompUnitList {
     auto comp_unit = unique_ptr<BaseAST>($1);
-    ast = move(comp_unit);
+    ast = std::move(comp_unit);
   }
   ;
 
@@ -67,13 +67,25 @@ CompUnitList
   : FuncDef {
     auto comp_unit = new CompUnitAST();
     auto func_def = unique_ptr<BaseAST>($1);
-    comp_unit->funcDefs.push_back(move(func_def));
+    comp_unit->funcDefs.push_back(std::move(func_def));
+    $$ = comp_unit;
+  }
+  | Decl {
+    auto comp_unit = new CompUnitAST();
+    auto decl = unique_ptr<BaseAST>($1);
+    comp_unit->decls.push_back(std::move(decl));
     $$ = comp_unit;
   }
   | CompUnitList FuncDef {
     auto comp_unit = (CompUnitAST*)($1);
     auto func_def = unique_ptr<BaseAST>($2);
-    comp_unit->funcDefs.push_back(move(func_def));
+    comp_unit->funcDefs.push_back(std::move(func_def));
+    $$ = comp_unit;
+  }
+  | CompUnitList Decl {
+    auto comp_unit = (CompUnitAST*)($1);
+    auto decl = unique_ptr<BaseAST>($2);
+    comp_unit->decls.push_back(std::move(decl));
     $$ = comp_unit;
   }
   ;
@@ -93,7 +105,7 @@ FuncDef
     func_def->ident = *unique_ptr<string>($2);
     MulVecType *vec = ($4);
     for (auto it = vec->begin(); it != vec->end(); it++)
-        func_def->funcFParams.push_back(move(*it));
+        func_def->funcFParams.push_back(std::move(*it));
     func_def->block = unique_ptr<BaseAST>($6);
     ((BlockAST*)(func_def->block).get())->func = func_def->ident;
     $$ = func_def;
@@ -166,7 +178,7 @@ ConstDecl
     const_decl->bType = *unique_ptr<string>($2);
     MulVecType *vec = ($3);
     for (auto it = vec->begin(); it != vec->end(); it++)
-      const_decl->constDefs.push_back(move(*it));
+      const_decl->constDefs.push_back(std::move(*it));
     $$ = const_decl;
   }
   ;
@@ -188,7 +200,7 @@ ConstDef
   : IDENT '=' ConstInitVal {
       auto const_def = new ConstDefAST();
       const_def->ident = *unique_ptr<string>($1);
-      const_def->constInitVal = unique_ptr<BaseAST>($3);
+      const_def->initVal = unique_ptr<BaseAST>($3);
       $$ = const_def;
   }
   ;
@@ -208,7 +220,7 @@ VarDecl
     var_decl->bType = *unique_ptr<string>($1);
     MulVecType *vec = ($2);
     for (auto it = vec->begin(); it != vec->end(); it++)
-        var_decl->varDefs.push_back(move(*it));
+        var_decl->varDefs.push_back(std::move(*it));
     $$ = var_decl;
   }
   ;
@@ -254,7 +266,7 @@ Block
     auto block = new BlockAST();
     MulVecType *vec = ($2);
     for (auto it = vec->begin(); it != vec->end(); it++)
-      block->blockItems.push_back(move(*it));
+      block->blockItems.push_back(std::move(*it));
     $$ = block;
   }
   ;
@@ -476,7 +488,7 @@ UnaryExp
     unary_exp->ident = *unique_ptr<string>($1);
     vector<unique_ptr<BaseAST>> *vec = ($3);
     for (auto it = vec->begin(); it != vec->end(); it++)
-        unary_exp->funcRParams.push_back(move(*it));
+        unary_exp->funcRParams.push_back(std::move(*it));
     $$ = unary_exp;
   }
   ;
