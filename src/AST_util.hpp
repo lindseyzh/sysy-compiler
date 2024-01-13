@@ -5,13 +5,17 @@
 #include<cassert>
 #include<vector>
 #include<map>
+#include<set>
 #include<unordered_map>
+#include<unordered_set>
 #include<variant>
 
 class BaseAST;
+class InitValAST;
+typedef std::unique_ptr<BaseAST> BaseASTPtr;
 typedef std::variant<int, std::string> SymTabEntry;
 typedef std::unordered_map<std::string, SymTabEntry> SymTabType; // Map ident to integer value / @ident_Num
-typedef std::vector<std::unique_ptr<BaseAST>> MulVecType;
+typedef std::vector<BaseASTPtr> MulVecType;
 
 typedef struct {
     std::string ident;
@@ -23,7 +27,3 @@ typedef struct{
     std::string retType;
     std::vector<ParamInfo> paramInfoList;
 } FuncInfo;
-
-inline SymTabEntry symTabs_lookup(std::string lval);
-inline std::string getNewSymName();
-inline void libFuncDecl();

@@ -49,6 +49,8 @@ void Visit(const koopa_raw_jump_t &jump);
 void Visit(const koopa_raw_call_t &call);
 std::string Visit(const koopa_raw_global_alloc_t &global_alloc);
 
+// TODO: remove "inline"
+
 inline void mv_to_reg(koopa_raw_value_t val, std::string reg){
     if (val->kind.tag == KOOPA_RVT_INTEGER)
         std::cout << "\tli      " << reg << ", " << val->kind.data.integer.value << "\n";

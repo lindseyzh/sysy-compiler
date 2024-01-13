@@ -26,15 +26,18 @@ int main(int argc, const char *argv[]) {
     assert(yyin);
     // output redirection
     freopen(output, "w", stdout);
+    cout << "// yyparse begin..." << endl;
 
     // 调用 parser 函数, parser 函数会进一步调用 lexer 解析输入文件的
     unique_ptr<BaseAST> ast;
     auto ret = yyparse(ast);
+    cout << "// yyparse finished" << endl;
+
     assert(!ret);
 
     // Output Koopa IR
     if(mode == "-koopa"){
-        ast->DumpIR(); 
+        ast->Dump(); 
     }
     // Output RISC-V
     else{
@@ -47,7 +50,7 @@ int main(int argc, const char *argv[]) {
         cout.rdbuf (ss.rdbuf());
 
         // Output Koopa IR to the string
-        ast->DumpIR();
+        ast->Dump();
         string str = ss.str();
         const char * IRStr = str.data();
 
