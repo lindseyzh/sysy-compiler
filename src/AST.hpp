@@ -4,12 +4,13 @@
 // Variants for in AST generation.
 // Note: Linking error occurs if I put them in AST_util.hpp, even with #pragma once.
 
-static const std::string thenString = "\%then_";
-static const std::string elseString = "\%else_";
-static const std::string endString = "\%end_";
-static const std::string whileEntryString = "\%while_entry_";
-static const std::string whileBodyString = "\%while_body_";
-static const std::string whileEndString = "\%while_end_";
+static const std::string thenString = "\%_then_";
+static const std::string elseString = "\%_else_";
+static const std::string endString = "\%_end_"; 
+// Note: there is a case with a variable named "end".
+static const std::string whileEntryString = "\%_while_entry_";
+static const std::string whileBodyString = "\%_while_body_";
+static const std::string whileEndString = "\%_while_end_";
 
 static int32_t varNum = 0;
 static int32_t ifElseNum = 0, whileNum = 0;
