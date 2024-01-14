@@ -12,6 +12,8 @@
 #define X0 15
 #define A0 7
 
+const std::string GlobalAllocString = "global_alloc_";
+
 // In order to implement register allocation, this map should be modified to map into a union of "int32_t, register"
 std::unordered_map<koopa_raw_value_t, int32_t> VarOffsetMap;
 std::unordered_map<koopa_raw_value_t, int32_t> VarRegMap;
@@ -48,34 +50,38 @@ void Visit(const koopa_raw_branch_t &branch);
 void Visit(const koopa_raw_jump_t &jump);
 void Visit(const koopa_raw_call_t &call);
 std::string Visit(const koopa_raw_global_alloc_t &global_alloc);
+int32_t Visit(const koopa_raw_get_elem_ptr_t &ptr);
+int32_t Visit(const koopa_raw_get_ptr_t &ptr);
 
 // TODO: remove "inline"
 
-inline void mv_to_reg(koopa_raw_value_t val, std::string reg){
+inline void moveToReg(koopa_raw_value_t val, std::string reg){
     if (val->kind.tag == KOOPA_RVT_INTEGER)
         std::cout << "\tli      " << reg << ", " << val->kind.data.integer.value << "\n";
 }
 
-inline void mv_to_reg(int32_t val, std::string reg){
+inline void moveToReg(int32_t val, std::string reg){
     std::cout << "\tli      " << reg << ", " << val << "\n";
 }
 
-inline void mv_to_reg(std::string reg1, std::string reg2){
+inline void moveToReg(std::string reg1, std::string reg2){
     std::cout << "\tmv      " << reg2 << ", " << reg1 << "\n";
 }
 
-inline int32_t choose_reg(int32_t stat, koopa_raw_value_t value){
-    // Search status 0
+enum Prioirty {low = 0, mid = 1, high = 2};
+
+inline int32_t chooseReg(int32_t stat, koopa_raw_value_t value){
+    // Search for a reg with low priority data
     for(int i = 0; i < REGNUM - 1; i++)
-        if(RegStatus[i] == 0){
+        if(RegStatus[i] == low){
             RegStatus[i] = stat;
             RegValue[i] = value;
             return i;
         }
 
-    // Search status 1
+    // Search for a reg with mid priority data
     for(int i = 0; i < REGNUM - 1; i++){
-        if(RegStatus[i] == 1){
+        if(RegStatus[i] == mid){
             koopa_raw_value_t preVal = RegValue[i];
             VarRegMap[preVal] = -1;
             if(!VarOffsetMap.count(preVal)){
@@ -106,13 +112,13 @@ inline int32_t choose_reg(int32_t stat, koopa_raw_value_t value){
     return -1;
 }
 
-inline int32_t calc_type_size(const koopa_raw_type_t &ty)
+inline int32_t calTypeSize(const koopa_raw_type_t &ty)
 {
     switch(ty->tag){
         case KOOPA_RTT_UNIT:
             return 0;
         case KOOPA_RTT_ARRAY:
-            return calc_type_size(ty->data.array.base) * ty->data.array.len;
+            return calTypeSize(ty->data.array.base) * ty->data.array.len;
         case KOOPA_RTT_INT32:
         case KOOPA_RTT_POINTER:
         default:
@@ -122,7 +128,7 @@ inline int32_t calc_type_size(const koopa_raw_type_t &ty)
     return 0;
 }
 
-inline int32_t calc_inst_size(const koopa_raw_value_t &value)
+inline int32_t calInsSize(const koopa_raw_value_t &value)
 {
     if (value->kind.tag == KOOPA_RVT_CALL){
         // maxArgNum = max(maxArgNum, value->kind.data.call.args.len);
@@ -133,11 +139,11 @@ inline int32_t calc_inst_size(const koopa_raw_value_t &value)
     if(value->ty->tag == KOOPA_RTT_UNIT)
         return 0;
     if(value->kind.tag == KOOPA_RVT_ALLOC)
-        return calc_type_size(value->ty->data.pointer.base);
-    return calc_type_size(value->ty);
+        return calTypeSize(value->ty->data.pointer.base);
+    return calTypeSize(value->ty);
 }
 
-inline int32_t calc_bb_size(const koopa_raw_basic_block_t &bb)
+inline int32_t calBlockSize(const koopa_raw_basic_block_t &bb)
 {
     // TODO: did not count params?
     int32_t size = 0;
@@ -145,16 +151,16 @@ inline int32_t calc_bb_size(const koopa_raw_basic_block_t &bb)
         const void *value = bb->insts.buffer[i];
         if(((koopa_raw_value_t)value)->kind.tag == KOOPA_RVT_CALL)
             saveRA = 1;
-        size += calc_inst_size((koopa_raw_value_t)value);
+        size += calInsSize((koopa_raw_value_t)value);
     }
     return size;
 }
 
-inline void cal_frame_size(const koopa_raw_function_t &func){
+inline void calFrameSize(const koopa_raw_function_t &func){
     FrameSize = StackTop = 0;
     maxArgNum = 0;
     for (int32_t i = 0; i < func->bbs.len; i++){
-        FrameSize += calc_bb_size((koopa_raw_basic_block_t)func->bbs.buffer[i]);
+        FrameSize += calBlockSize((koopa_raw_basic_block_t)func->bbs.buffer[i]);
     }
     
     if(maxArgNum > 8){
@@ -168,7 +174,7 @@ inline void cal_frame_size(const koopa_raw_function_t &func){
     return;
 }
 
-inline void reset_regs(bool store_to_stack)
+inline void resetRegs(bool store_to_stack)
 {
     for (int32_t i = 0; i < REGNUM - 1; i++)
         if (RegStatus[i] > 0){
@@ -194,14 +200,25 @@ inline void reset_regs(bool store_to_stack)
         }
 }
 
-inline void print_stack_size(){
+inline void printStackSize(){
     return;
-    std::cout << "// StackTop=" << StackTop << ", FrameSize=" << FrameSize << std::endl;
+    std::cout << "// StackTop=" << StackTop << ", FrameSize=" << FrameSize << "\n";
 }
 
-inline void print_reg_status(){
+inline void printRegStatus(){
     std::cout << "// ";
     for(int i = 0; i < REGNUM; i++)
         std::cout << RegStatus[i] << ",";
-    std::cout << std::endl;
+    std::cout << "\n";
+}
+
+void aggregateRecurrence(const koopa_raw_value_t &aggr){
+    koopa_raw_slice_t elems = aggr->kind.data.aggregate.elems;
+    for (int32_t i = 0; i < elems.len; i++){
+        auto value = reinterpret_cast<koopa_raw_value_t>(elems.buffer[i]);
+        if (value->kind.tag == KOOPA_RVT_INTEGER)
+            std::cout << "\t.word " << value->kind.data.integer.value << "\n";
+        else if (value->kind.tag == KOOPA_RVT_AGGREGATE)
+            aggregateRecurrence(value);
+    }
 }
