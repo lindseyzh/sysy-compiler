@@ -12,24 +12,39 @@
 #define X0 15
 #define A0 7
 
-const std::string GlobalAllocString = "global_alloc_";
+const std::string GlobalAllocString = "_global_alloc_";
+
+class RegInfo {
+    public:
+        int32_t regnum;
+        int32_t offset; 
+        // RegInfo(){};
+        RegInfo(int32_t rn = -1, int32_t ofs = -1): regnum(rn), offset(ofs) {}
+
+        inline void printRegInfo(){
+            return;
+            std::cout << "// regnum = " << regnum << ", offset = " << offset << "\n";
+        }
+};
+std::unordered_map<koopa_raw_value_t, RegInfo> RegInfoMap;
 
 // In order to implement register allocation, this map should be modified to map into a union of "int32_t, register"
-std::unordered_map<koopa_raw_value_t, int32_t> VarOffsetMap;
-std::unordered_map<koopa_raw_value_t, int32_t> VarRegMap;
+// std::unordered_map<koopa_raw_value_t, int32_t> VarOffsetMap;
+// std::unordered_map<koopa_raw_value_t, int32_t> VarRegMap;
 koopa_raw_value_t RegValue[16];
-std::string RegName[16] = {"t0", "t1", "t2", "t3", "t4", "t5", "t6",
-    "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "x0"};
+std::string RegName[16] = {"t0", "t1", "t2", "t3", "t4", "t5", "t6", "a0", "a1", "a2",
+                           "a3", "a4", "a5", "a6", "a7", "x0"};
 int32_t RegStatus[16] = {};
-// std::map<std::string, int32_t> RegNumber {{"t0", 0}, {"t1", 1},  {"t2", 2} , {"t3", 3}, {"t4, 4"}, {"t5", 5}, {"t6", 6},
+// std::unordered_map<std::string, int32_t> RegNumber {{"t0", 0}, {"t1", 1},  {"t2", 2} , {"t3", 3}, {"t4, 4"}, {"t5", 5}, {"t6", 6},
 //     {"a0", 7}, {"a1", 8}, {"a2", 9}, {"a3", 10}, {"a4", 11}, {"a5", 12}, {"a6", 13}, 
 //     {"a7", 14},  {"x0", 15} };
 
 int32_t FrameSize = 0;
 int32_t StackTop = 0;
 uint32_t maxArgNum;
-koopa_raw_value_t CurValue, PreValue;
+koopa_raw_value_t CurValue;
 bool saveRA = 0;
+int32_t lastOffset = -1;
 
 int32_t GlobalVarCount = 0;
 std::unordered_map<koopa_raw_value_t, std::string> GlobalVarTab;
@@ -38,20 +53,18 @@ void Visit(const koopa_raw_program_t &program);
 void Visit(const koopa_raw_slice_t &slice);
 void Visit(const koopa_raw_function_t &func);
 void Visit(const koopa_raw_basic_block_t &bb);
-// Reg Visit(const koopa_raw_value_t &value);
-int32_t Visit(const koopa_raw_value_t &value);
-void Visit(const koopa_raw_return_t &ret);
-// Reg Visit(const koopa_raw_integer_t &integer);
-int32_t Visit(const koopa_raw_integer_t &integer);
-int32_t Visit(const koopa_raw_binary_t &binary);
-int32_t Visit(const koopa_raw_load_t &load);
-void Visit(const koopa_raw_store_t &store);
-void Visit(const koopa_raw_branch_t &branch);
-void Visit(const koopa_raw_jump_t &jump);
-void Visit(const koopa_raw_call_t &call);
+RegInfo Visit(const koopa_raw_value_t &value);
+RegInfo Visit(const koopa_raw_return_t &ret);
+RegInfo Visit(const koopa_raw_integer_t &integer);
+RegInfo Visit(const koopa_raw_binary_t &binary);
+RegInfo Visit(const koopa_raw_load_t &load);
+RegInfo Visit(const koopa_raw_store_t &store);
+RegInfo Visit(const koopa_raw_branch_t &branch);
+RegInfo Visit(const koopa_raw_jump_t &jump);
+RegInfo Visit(const koopa_raw_call_t &call);
 std::string Visit(const koopa_raw_global_alloc_t &global_alloc);
-int32_t Visit(const koopa_raw_get_elem_ptr_t &ptr);
-int32_t Visit(const koopa_raw_get_ptr_t &ptr);
+RegInfo Visit(const koopa_raw_get_elem_ptr_t &ptr);
+RegInfo Visit(const koopa_raw_get_ptr_t &ptr);
 
 // TODO: remove "inline"
 
@@ -70,9 +83,9 @@ inline void moveToReg(std::string reg1, std::string reg2){
 
 enum Prioirty {low = 0, mid = 1, high = 2};
 
-inline int32_t chooseReg(int32_t stat, koopa_raw_value_t value){
+int32_t chooseReg(int32_t stat, koopa_raw_value_t value){
     // Search for a reg with low priority data
-    for(int i = 0; i < REGNUM - 1; i++)
+    for(int32_t i = 0; i < REGNUM - 1; i++)
         if(RegStatus[i] == low){
             RegStatus[i] = stat;
             RegValue[i] = value;
@@ -80,21 +93,21 @@ inline int32_t chooseReg(int32_t stat, koopa_raw_value_t value){
         }
 
     // Search for a reg with mid priority data
-    for(int i = 0; i < REGNUM - 1; i++){
+    for(int32_t i = 0; i < REGNUM - 1; i++){
         if(RegStatus[i] == mid){
             koopa_raw_value_t preVal = RegValue[i];
-            VarRegMap[preVal] = -1;
-            if(!VarOffsetMap.count(preVal)){
-                VarOffsetMap[preVal] = -1;
-            }
-            int32_t varOffset = VarOffsetMap[preVal];
+            RegInfoMap[preVal].regnum = -1;
+            // if(!VarOffsetMap.count(preVal)){
+            //     VarOffsetMap[preVal] = -1;
+            // }
+            int32_t varOffset = RegInfoMap[preVal].offset;
             // std::cout << "//varOffset=" << varOffset << std::endl;
             if (varOffset == -1){
                 varOffset = StackTop;
-                VarOffsetMap[preVal] = varOffset;
+                RegInfoMap[preVal].offset = varOffset;
                 StackTop += 4;
             }
-            if (varOffset >= -2048 && varOffset <= 2047){
+            if (varOffset >= -2048 && varOffset < 2048){
                 std::cout << "\tsw      " << RegName[i] << ", " << varOffset <<"(sp)\n";
             }
             else{
@@ -108,12 +121,10 @@ inline int32_t chooseReg(int32_t stat, koopa_raw_value_t value){
         }
     }
     // Fail.
-    assert(false);
     return -1;
 }
 
-inline int32_t calTypeSize(const koopa_raw_type_t &ty)
-{
+int32_t calTypeSize(const koopa_raw_type_t &ty){
     switch(ty->tag){
         case KOOPA_RTT_UNIT:
             return 0;
@@ -128,7 +139,7 @@ inline int32_t calTypeSize(const koopa_raw_type_t &ty)
     return 0;
 }
 
-inline int32_t calInsSize(const koopa_raw_value_t &value)
+int32_t calInsSize(const koopa_raw_value_t &value)
 {
     if (value->kind.tag == KOOPA_RVT_CALL){
         // maxArgNum = max(maxArgNum, value->kind.data.call.args.len);
@@ -143,7 +154,7 @@ inline int32_t calInsSize(const koopa_raw_value_t &value)
     return calTypeSize(value->ty);
 }
 
-inline int32_t calBlockSize(const koopa_raw_basic_block_t &bb)
+int32_t calBlockSize(const koopa_raw_basic_block_t &bb)
 {
     // TODO: did not count params?
     int32_t size = 0;
@@ -157,16 +168,30 @@ inline int32_t calBlockSize(const koopa_raw_basic_block_t &bb)
 }
 
 inline void calFrameSize(const koopa_raw_function_t &func){
-    FrameSize = StackTop = 0;
-    maxArgNum = 0;
+    FrameSize = StackTop = maxArgNum = 0;
     for (int32_t i = 0; i < func->bbs.len; i++){
-        FrameSize += calBlockSize((koopa_raw_basic_block_t)func->bbs.buffer[i]);
+        auto ptr1 = func->bbs.buffer[i];
+        // FrameSize += calBlockSize((koopa_raw_basic_block_t)ptr1);
+        koopa_raw_basic_block_t bb = reinterpret_cast<koopa_raw_basic_block_t>(ptr1);
+        for (int32_t j = 0; j < bb->insts.len; j++){
+            auto ptr2 = bb->insts.buffer[j];
+            koopa_raw_value_t inst = reinterpret_cast<koopa_raw_value_t>(ptr2);
+            if (inst->ty->tag != KOOPA_RTT_UNIT){
+                if (inst->kind.tag == KOOPA_RVT_ALLOC)
+                    FrameSize += calTypeSize(inst->ty->data.pointer.base);
+                else FrameSize += 4;
+            }
+            if (inst->kind.tag == KOOPA_RVT_CALL){
+                if (inst->kind.data.call.args.len > maxArgNum)
+                    maxArgNum = inst->kind.data.call.args.len;
+                saveRA = 1;
+            }
+        }
     }
     
-    if(maxArgNum > 8){
-        int32_t argSize = (maxArgNum - 8) * 4;
-        FrameSize += argSize;
-        StackTop += argSize;
+    if(maxArgNum > 8){ // Argument number > 8. Put some in the stack.
+        FrameSize += (maxArgNum - 8) * 4;
+        StackTop += (maxArgNum - 8) * 4;
     }
     // TODO: change FrameSize calculation
     FrameSize += saveRA ? 4 : 0;
@@ -174,20 +199,18 @@ inline void calFrameSize(const koopa_raw_function_t &func){
     return;
 }
 
-inline void resetRegs(bool store_to_stack)
-{
+void resetRegs(bool store_to_stack){
     for (int32_t i = 0; i < REGNUM - 1; i++)
         if (RegStatus[i] > 0){
             RegStatus[i] = 0;
-            auto preVal = RegValue[i];
-            VarRegMap[preVal] = -1;
-            int32_t varOffset = VarOffsetMap[preVal];
+            koopa_raw_value_t preVal = RegValue[i];
+            RegInfoMap[preVal].regnum = -1;
+            int32_t varOffset = RegInfoMap[preVal].offset;
             if (varOffset == -1){
-                varOffset = StackTop;
-                VarOffsetMap[preVal] = varOffset;
+                RegInfoMap[preVal].offset = varOffset = StackTop;
                 StackTop += 4;
                 if (store_to_stack){
-                    if (varOffset >= -2048 && varOffset <= 2047)
+                    if (varOffset >= -2048 && varOffset < 2048)
                         std::cout << "\tsw      " << RegName[i] << ", " <<
                             varOffset << "(sp)\n";
                     else{
@@ -206,6 +229,7 @@ inline void printStackSize(){
 }
 
 inline void printRegStatus(){
+    return;
     std::cout << "// ";
     for(int i = 0; i < REGNUM; i++)
         std::cout << RegStatus[i] << ",";
