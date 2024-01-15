@@ -26,12 +26,12 @@ int main(int argc, const char *argv[]) {
     assert(yyin);
     // output redirection
     freopen(output, "w", stdout);
-    cout << "// yyparse begin..." << endl;
+    // cout << "// yyparse begin..." << endl;
 
     // 调用 parser 函数, parser 函数会进一步调用 lexer 解析输入文件的
     unique_ptr<BaseAST> ast;
     auto ret = yyparse(ast);
-    cout << "// yyparse finished" << endl;
+    // cout << "// yyparse finished" << endl;
 
     assert(!ret);
 

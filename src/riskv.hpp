@@ -59,7 +59,7 @@ void Visit(const koopa_raw_function_t &func) {
             std::cout << "\tsw      ra, (s11)\n";
         }
     }
-    printStackSize(); // for debug
+    // printStackSize(); // for debug
 
     // Store parameters in the value map
     for (int32_t i = 0; i < func->params.len; i++){
@@ -77,7 +77,7 @@ void Visit(const koopa_raw_function_t &func) {
             // VarOffsetMap[param] = FrameSize + (i - 8) * 4;
             // VarRegMap[param] = -1;
         }
-        RegInfoMap[param].printRegInfo(); // for debug
+        // RegInfoMap[param].printRegInfo(); // for debug
     }
     
     Visit(func->bbs);
@@ -141,7 +141,7 @@ RegInfo Visit(const koopa_raw_value_t &value) {
             // assert(value->ty->tag == KOOPA_RTT_POINTER);
             lastReg.offset = StackTop;            
             StackTop += calTypeSize(value->ty->data.pointer.base);
-            printStackSize();
+            // printStackSize();
             RegInfoMap[value] = lastReg;
             // printRegStatus();
             break;
@@ -158,7 +158,7 @@ RegInfo Visit(const koopa_raw_value_t &value) {
             RegInfoMap[value] = lastReg = Visit(value->kind.data.load);
             // VarRegMap[value] = lastReg;
             // VarOffsetMap[value] = lastOffset;
-            printStackSize();
+            // printStackSize();
             // printRegStatus();
             break;
         /// Memory store.   
@@ -204,7 +204,7 @@ RegInfo Visit(const koopa_raw_value_t &value) {
         case KOOPA_RVT_RETURN:
             // std::cout << "//ret\n";
             Visit(value->kind.data.ret);
-            printStackSize();
+            // printStackSize();
             // printRegStatus();
             break;
         default:
@@ -422,7 +422,7 @@ RegInfo Visit(const koopa_raw_store_t &store){
         return RegInfo();
     }
 
-    printRegStatus(); // for debug
+    // printRegStatus(); // for debug
     if (RegInfoMap[store.dest].offset == -1){ // Store it in the stack
         RegInfoMap[store.dest].offset = StackTop;
         StackTop += 4;

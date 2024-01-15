@@ -22,8 +22,8 @@ class RegInfo {
         RegInfo(int32_t rn = -1, int32_t ofs = -1): regnum(rn), offset(ofs) {}
 
         inline void printRegInfo(){
-            return;
             std::cout << "// regnum = " << regnum << ", offset = " << offset << "\n";
+            return;
         }
 };
 std::unordered_map<koopa_raw_value_t, RegInfo> RegInfoMap;
@@ -101,7 +101,7 @@ int32_t chooseReg(int32_t stat, koopa_raw_value_t value){
             //     VarOffsetMap[preVal] = -1;
             // }
             int32_t varOffset = RegInfoMap[preVal].offset;
-            // std::cout << "//varOffset=" << varOffset << std::endl;
+            // std::cout << "//varOffset=" << varOffset << :\n";
             if (varOffset == -1){
                 varOffset = StackTop;
                 RegInfoMap[preVal].offset = varOffset;
