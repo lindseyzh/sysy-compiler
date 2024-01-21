@@ -81,7 +81,7 @@ void moveToReg(std::string reg1, std::string reg2){
     std::cout << "\tmv      " << reg2 << ", " << reg1 << "\n";
 }
 
-enum Prioirty {low = 0, mid = 1, high = 2};
+enum Priority {low = 0, mid = 1, high = 2};
 
 int32_t chooseReg(int32_t stat, koopa_raw_value_t value){
     // Search for a reg with low priority data
