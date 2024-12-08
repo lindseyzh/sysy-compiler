@@ -1,3 +1,5 @@
+编译原理课程笔记（2023秋）：https://zzhanglx.notion.site/73eed385186d4140a6935bf65d958709?pvs=4
+
 # 编译原理课程实践报告：Compiler-zlx
 
 ## 一、编译器概述
